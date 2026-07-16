@@ -3,31 +3,41 @@ import { contextBridge, ipcRenderer } from 'electron'
 import {
   IPC,
   PUSH,
-  type EntranceApi,
-  type ConnectRequest,
   type AttachRequest,
   type CdpEventSummary,
+  type ConnectRequest,
+  type EntranceApi,
+  type RecStatus,
+  type UpdateRecordingMeta,
 } from '@shared/ipc'
 
 /**
  * Context-bridged control-plane API (spec decision 12). Only these typed calls
  * cross the boundary; the renderer never touches ipcRenderer directly.
  */
+
+/** Subscribe to a main→renderer push channel; returns the unsubscribe. */
+function onPush<TPayload>(channel: string, cb: (payload: TPayload) => void): () => void {
+  const listener = (_ev: unknown, payload: TPayload): void => cb(payload)
+  ipcRenderer.on(channel, listener)
+  return () => ipcRenderer.removeListener(channel, listener)
+}
+
 const api: EntranceApi = {
   detectServers: () => ipcRenderer.invoke(IPC.detectServers),
   connectTarget: (req: ConnectRequest) => ipcRenderer.invoke(IPC.connectTarget, req),
   attachTarget: (req: AttachRequest) => ipcRenderer.invoke(IPC.attachTarget, req),
   detachTarget: () => ipcRenderer.invoke(IPC.detachTarget),
-  onCdpEvent: (cb: (ev: CdpEventSummary) => void) => {
-    const listener = (_ev: unknown, payload: CdpEventSummary): void => cb(payload)
-    ipcRenderer.on(PUSH.cdpEvent, listener)
-    return () => ipcRenderer.removeListener(PUSH.cdpEvent, listener)
-  },
-  onTargetGone: (cb: () => void) => {
-    const listener = (): void => cb()
-    ipcRenderer.on(PUSH.targetGone, listener)
-    return () => ipcRenderer.removeListener(PUSH.targetGone, listener)
-  },
+  recStart: () => ipcRenderer.invoke(IPC.recStart),
+  recStop: () => ipcRenderer.invoke(IPC.recStop),
+  updateRecordingMeta: (req: UpdateRecordingMeta) =>
+    ipcRenderer.invoke(IPC.updateRecordingMeta, req),
+  listRecordings: () => ipcRenderer.invoke(IPC.listRecordings),
+  onCdpEvent: (cb) => onPush<CdpEventSummary>(PUSH.cdpEvent, cb),
+  onTargetGone: (cb) => onPush<undefined>(PUSH.targetGone, () => cb()),
+  onRecStatus: (cb) => onPush<RecStatus>(PUSH.recStatus, cb),
+  onRecAutoStopped: (cb) =>
+    onPush<{ reason: string; recordingId: string }>(PUSH.recAutoStopped, cb),
 }
 
 contextBridge.exposeInMainWorld('entrance', api)

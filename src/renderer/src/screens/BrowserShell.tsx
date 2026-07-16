@@ -7,6 +7,8 @@ import type { CdpEventSummary } from '@shared/ipc'
 import { EmbeddedTarget, type EmbeddedTargetHandle } from '../components/EmbeddedTarget'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cdpLogStore } from '../lib/cdp-log-store'
+import { formatElapsed } from '../lib/format-elapsed'
+import { recStatusStore } from '../lib/rec-status-store'
 import { cdpAttached, disconnectTargetThunk, targetGone } from '../store/appSlice'
 import { useAppDispatch, useAppSelector } from '../store'
 
@@ -21,14 +23,30 @@ export function BrowserShell() {
   const embedRef = useRef<EmbeddedTargetHandle | null>(null)
   const [currentUrl, setCurrentUrl] = useState(target?.url ?? '')
 
-  // Control-plane push subscriptions (CDP events / target loss) — live for the shell's lifetime.
+  // Control-plane push subscriptions (CDP events / target loss / rec status) — live for the shell's lifetime.
   useEffect(() => {
     const unsubscribeCdp = window.entrance.onCdpEvent((event) => cdpLogStore.push(event))
     const unsubscribeGone = window.entrance.onTargetGone(() => dispatch(targetGone()))
+    const unsubscribeRecStatus = window.entrance.onRecStatus((status) =>
+      recStatusStore.set(status),
+    )
+    const unsubscribeAutoStopped = window.entrance.onRecAutoStopped(({ reason }) =>
+      // Surface the honest auto-stop in the live log (proper 1d toast lands in Slice E).
+      cdpLogStore.push({
+        ts: Date.now(),
+        domain: 'Recorder',
+        method: 'rec.autoStopped',
+        kind: 'other',
+        summary: `録画を自動停止しました (${reason})`,
+      }),
+    )
     return () => {
       unsubscribeCdp()
       unsubscribeGone()
+      unsubscribeRecStatus()
+      unsubscribeAutoStopped()
       cdpLogStore.clear()
+      recStatusStore.reset()
     }
   }, [dispatch])
 
@@ -84,16 +102,7 @@ export function BrowserShell() {
           切断
         </button>
 
-        {/* Rec placeholder — recording lands in P1 (spec decision 17: explicit Rec only) */}
-        <button
-          type="button"
-          disabled
-          title="録画機能はP1で実装予定"
-          className="app-no-drag flex h-8 cursor-not-allowed items-center gap-2 rounded-lg border border-border bg-sunken px-4 text-[13px] font-semibold opacity-60"
-        >
-          <span className="h-2 w-2 rounded-full bg-rec" />
-          Rec
-        </button>
+        <RecButton />
       </div>
 
       {target.isGone && (
@@ -111,7 +120,11 @@ export function BrowserShell() {
           className="absolute inset-0 h-full w-full"
           onAttachReady={(webContentsId) => {
             void window.entrance
-              .attachTarget({ webContentsId })
+              .attachTarget({
+                webContentsId,
+                framework: target.framework,
+                variant: target.variant,
+              })
               .then((result) => dispatch(cdpAttached({ ok: result.ok })))
           }}
           onNavigated={setCurrentUrl}
@@ -143,6 +156,53 @@ function ToolbarIconButton({
     >
       {children}
     </button>
+  )
+}
+
+/** Rec toggle + live HUD (elapsed/counts) — grows into the full screen-1d HUD in Slice E. */
+function RecButton() {
+  const status = useSyncExternalStore(recStatusStore.subscribe, recStatusStore.getSnapshot)
+  const [lastError, setLastError] = useState<string | null>(null)
+  const isRecording = status.state === 'recording'
+
+  const handleToggle = (): void => {
+    setLastError(null)
+    if (isRecording) {
+      void window.entrance.recStop().then((result) => {
+        if (!result.ok) setLastError(result.error ?? '停止に失敗しました')
+      })
+    } else {
+      void window.entrance.recStart().then((result) => {
+        if (!result.ok) setLastError(result.error ?? '録画を開始できませんでした')
+      })
+    }
+  }
+
+  return (
+    <div className="app-no-drag flex items-center gap-2.5">
+      {lastError && <span className="max-w-[240px] truncate text-[11px] text-rec">{lastError}</span>}
+      {isRecording && (
+        <span className="flex items-center gap-2 font-mono text-[11.5px] text-muted-foreground">
+          <span className="text-foreground/90">{formatElapsed(status.elapsedMs)}</span>
+          <span>
+            fetch {status.counts.fetch} · console {status.counts.console} · error{' '}
+            {status.counts.error}
+          </span>
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={handleToggle}
+        className={`flex h-8 items-center gap-2 rounded-lg border px-4 text-[13px] font-semibold transition-colors ${
+          isRecording
+            ? 'border-rec/60 bg-rec/10 text-rec hover:bg-rec/20'
+            : 'border-border bg-sunken hover:bg-white/[0.05]'
+        }`}
+      >
+        <span className={`h-2 w-2 rounded-full bg-rec ${isRecording ? 'animate-pulse' : ''}`} />
+        {isRecording ? '停止' : 'Rec'}
+      </button>
+    </div>
   )
 }
 

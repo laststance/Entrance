@@ -4,3 +4,4 @@ allowBuilds:
   esbuild: true
   # Windows Squirrel packager pulled in by electron-builder; never runs on macOS.
   electron-winstaller: false
+  better-sqlite3: true

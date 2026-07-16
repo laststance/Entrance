@@ -2,8 +2,9 @@ import { join } from 'node:path'
 
 import { app, BrowserWindow, shell } from 'electron'
 
+import { openDatabase } from './db'
 import { registerIpcHandlers } from './ipc'
-import { detachCdp } from './cdp'
+import { RecordingManager } from './recorder/recording'
 
 /**
  * Entrance main process bootstrap: single window (spec decision 7), macOS
@@ -11,6 +12,9 @@ import { detachCdp } from './cdp'
  */
 
 let mainWindow: BrowserWindow | null = null
+
+// One manager per app — owns the attached target session and the active recording.
+const recordingManager = new RecordingManager(() => mainWindow)
 
 // Dev-only: expose a debugging port so external QA tooling (electron MCP / Playwright)
 // can drive Entrance's OWN renderer. Never attach external clients to a recorded
@@ -55,7 +59,8 @@ function createWindow(): void {
 
   mainWindow.once('ready-to-show', () => mainWindow?.show())
   mainWindow.on('closed', () => {
-    detachCdp()
+    // Finalizes any active recording before the session spool is dropped.
+    void recordingManager.shutdownSession()
     mainWindow = null
   })
 
@@ -96,7 +101,8 @@ app.on('web-contents-created', (_ev, contents) => {
 })
 
 void app.whenReady().then(() => {
-  registerIpcHandlers(() => mainWindow)
+  openDatabase()
+  registerIpcHandlers(recordingManager)
   createWindow()
 
   app.on('activate', () => {

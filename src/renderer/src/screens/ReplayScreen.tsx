@@ -1,11 +1,14 @@
-import { Suspense, use, useRef, useState, useSyncExternalStore } from 'react'
+import { Suspense, use, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 
 import { ArrowLeft, Pause, Play } from 'lucide-react'
+
+import { buildTimelineMarkers } from '@shared/timeline-markers'
 
 import type { LoadedRecording } from '../lib/replay/load-recording'
 
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { RrwebPlayer, type RrwebPlayerHandle } from '../components/RrwebPlayer'
+import { TimelineCanvas } from '../components/TimelineCanvas'
 import { formatRecClock } from '../lib/format-rec-clock'
 import { loadRecording } from '../lib/replay/load-recording'
 import { playheadStore } from '../lib/replay/playhead-store'
@@ -94,6 +97,10 @@ function ReplayLoaded({ loadPromise }: { loadPromise: Promise<LoadedRecording> }
   const recording = use(loadPromise)
   const playerRef = useRef<RrwebPlayerHandle>(null)
   const hasReplayableDom = recording.rrwebEvents.length >= 2
+  const markers = useMemo(
+    () => buildTimelineMarkers(recording.lanes, recording.manifest.t0Mono),
+    [recording],
+  )
 
   return (
     <>
@@ -113,6 +120,17 @@ function ReplayLoaded({ loadPromise }: { loadPromise: Promise<LoadedRecording> }
             </p>
           </div>
         )}
+      </div>
+      {/* Multi-lane timeline (mock 1a bottom panel; 1c filmstrip folded in as a lane) */}
+      <div className="shrink-0 border-t border-border bg-sunken">
+        <TimelineCanvas
+          recordingId={recording.manifest.recordingId}
+          durationMs={recording.manifest.durationMs}
+          markers={markers}
+          screencastLane={recording.lanes.screencast ?? []}
+          t0Mono={recording.manifest.t0Mono}
+          onSeekAction={(tMonoOffsetMs) => playerRef.current?.seekTo(tMonoOffsetMs)}
+        />
       </div>
       <TransportBar durationMs={recording.manifest.durationMs} playerRef={playerRef} />
     </>

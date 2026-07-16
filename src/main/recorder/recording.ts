@@ -4,6 +4,7 @@ import {
   linkSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   rmSync,
   statfsSync,
   writeFileSync,
@@ -13,6 +14,11 @@ import { join } from 'node:path'
 import type { BrowserWindow } from 'electron'
 import { ulid } from 'ulid'
 
+import {
+  AGENT_REC_START_EXPRESSION,
+  AGENT_REC_STOP_EXPRESSION,
+  type AgentMessage,
+} from '@shared/agent'
 import {
   LIVE_MANIFEST_FILENAME,
   MANIFEST_FILENAME,
@@ -57,8 +63,20 @@ export class RecordingManager {
   private session: TargetSession | null = null
   private active: ActiveRecording | null = null
   private statusTimer: ReturnType<typeof setInterval> | null = null
+  private agentSourceCache: string | null = null
 
   constructor(private readonly getWindow: () => BrowserWindow | null) {}
+
+  /** Page-agent IIFE built by scripts/build-agent.mjs into out/agent/. */
+  private loadAgentSource(): string {
+    if (this.agentSourceCache === null) {
+      this.agentSourceCache = readFileSync(
+        join(import.meta.dirname, '../agent/page-agent.js'),
+        'utf8',
+      )
+    }
+    return this.agentSourceCache
+  }
 
   /** Replace any previous session and attach the recorder to the new target. */
   async attachSession(request: AttachRequest): Promise<{ ok: boolean; error?: string }> {
@@ -70,8 +88,10 @@ export class RecordingManager {
       appWindow: window.webContents,
       framework: request.framework,
       bundlerVariant: request.variant,
+      agentSource: this.loadAgentSource(),
       callbacks: {
         onLaneEvent: (event) => this.tallyLaneEvent(event),
+        onAgentEvent: (message) => this.handleAgentEvent(message),
         onTopFrameNavigated: (url) => this.handleTopFrameNavigation(url),
         onTargetGone: () => void this.handleTargetGone(),
       },
@@ -137,6 +157,8 @@ export class RecordingManager {
       }),
     )
     this.active = active
+    // Arm the in-page rrweb recorder — its FullSnapshot becomes the t0 baseline.
+    this.session.evaluateInPage(AGENT_REC_START_EXPRESSION)
     this.statusTimer = setInterval(() => this.pushStatus(), REC_STATUS_PUSH_INTERVAL_MS)
     this.pushStatus()
     return { ok: true, recordingId }
@@ -159,6 +181,7 @@ export class RecordingManager {
       this.statusTimer = null
     }
 
+    session.evaluateInPage(AGENT_REC_STOP_EXPRESSION)
     const tEndMono = session.sequencer.nowMono()
     active.recLanes.append(session.sequencer.stamp('lifecycle', { kind: 'rec-stop', reason }))
     active.recLanes.close()
@@ -196,6 +219,34 @@ export class RecordingManager {
     }
     this.pushStatus()
     return { ok: true, recordingId: active.recordingId, name: active.name }
+  }
+
+  /** Agent lanes (rrweb/input) are recording-only (decision 27) — dropped while idle. */
+  private handleAgentEvent(message: AgentMessage): void {
+    const session = this.session
+    const active = this.active
+    if (!session || !active) return
+    if (message.lane === 'agent') {
+      // A new document's agent came up mid-recording — re-arm rrweb there.
+      session.evaluateInPage(AGENT_REC_START_EXPRESSION)
+      return
+    }
+    let payload: unknown = message.payload
+    if (message.lane === 'input' && message.payload.kind === 'key' && message.payload.secret) {
+      // Real keystroke goes to the enclave (decision 32d); the lane keeps the masked shell.
+      session.appendEnclaveEntry({
+        kind: 'keystroke',
+        tMono: session.sequencer.nowMono(),
+        code: message.payload.code,
+        key: message.payload.secret.key,
+      })
+      const maskedPayload = { ...message.payload }
+      delete maskedPayload.secret
+      payload = maskedPayload
+    }
+    const event = session.sequencer.stamp(message.lane, payload)
+    active.recLanes.append(event)
+    this.tallyLaneEvent(event)
   }
 
   /** Live HUD tally — only events at/after t0 count (spool also holds bootstrap events). */

@@ -9,15 +9,16 @@
   "author": "Laststance.io",
   "license": "MIT",
   "scripts": {
-    "dev": "electron-vite dev --watch",
-    "build": "electron-vite build",
+    "build:agent": "node scripts/build-agent.mjs",
+    "dev": "node scripts/build-agent.mjs && electron-vite dev --watch",
+    "build": "node scripts/build-agent.mjs && electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "test": "vitest run",
     "test:watch": "vitest",
-    "dist": "electron-vite build && electron-builder --mac"
+    "dist": "node scripts/build-agent.mjs && electron-vite build && electron-builder --mac"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
@@ -48,10 +49,12 @@
     "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^6",
     "electron": "^43.1.1",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
+    "esbuild": "^0.28.1",
     "eslint": "^10",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
@@ -64,6 +67,7 @@
     "typescript": "~6",
     "typescript-eslint": "^8",
     "vite": "^8.1.4",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "ws": "^8.21.1"
   }
 }

@@ -4,6 +4,12 @@ import { join } from 'node:path'
 import { webContents, type WebContents } from 'electron'
 import { ulid } from 'ulid'
 
+import {
+  AGENT_BINDING_NAME,
+  AGENT_MESSAGE_MAX_BYTES,
+  agentMessageSchema,
+  type AgentMessage,
+} from '@shared/agent'
 import type { Lane, LaneEvent } from '@shared/envelope'
 import { PUSH, type CdpEventSummary } from '@shared/ipc'
 
@@ -58,6 +64,8 @@ interface CdpResponseSummary {
 export interface TargetSessionCallbacks {
   /** Fires for every stamped lane event — RecordingManager tallies the live HUD. */
   onLaneEvent: (event: LaneEvent) => void
+  /** Validated page-agent message (rrweb/input) — recorded only while a recording is active. */
+  onAgentEvent: (message: AgentMessage) => void
   /** Top-frame navigation; the manager decides the navigated-away auto-stop (decision 25). */
   onTopFrameNavigated: (url: string) => void
   /** Target crashed/destroyed/detached — the manager auto-stops with target-crashed. */
@@ -78,6 +86,7 @@ export class TargetSession {
   private readonly target: WebContents
   private readonly appWindow: WebContents
   private readonly callbacks: TargetSessionCallbacks
+  private readonly agentSource: string
   private topFrameUrl: string
   private isDisposed = false
   private removeCdpListeners: () => void = () => {}
@@ -85,12 +94,18 @@ export class TargetSession {
   private constructor(
     target: WebContents,
     appWindow: WebContents,
-    options: { framework?: string; bundlerVariant?: string; callbacks: TargetSessionCallbacks },
+    options: {
+      framework?: string
+      bundlerVariant?: string
+      agentSource: string
+      callbacks: TargetSessionCallbacks
+    },
   ) {
     this.target = target
     this.appWindow = appWindow
     this.framework = options.framework
     this.bundlerVariant = options.bundlerVariant
+    this.agentSource = options.agentSource
     this.callbacks = options.callbacks
     this.sessionId = ulid()
     this.spoolDir = sessionSpoolDir(this.sessionId)
@@ -118,6 +133,7 @@ export class TargetSession {
     appWindow: WebContents
     framework?: string
     bundlerVariant?: string
+    agentSource: string
     callbacks: TargetSessionCallbacks
   }): Promise<{ session: TargetSession } | { error: string }> {
     const target = webContents.fromId(options.webContentsId)
@@ -132,11 +148,28 @@ export class TargetSession {
     session.installListeners()
     try {
       await session.enableCdpDomains()
+      await session.installPageAgent()
     } catch (err) {
       session.dispose()
       return { error: `CDP domain enable failed: ${String(err)}` }
     }
     return { session }
+  }
+
+  /** Append a secrets-enclave row (Set-Cookie values, real keystrokes — decision 32). */
+  appendEnclaveEntry(entry: Record<string, unknown>): void {
+    if (this.isDisposed) return
+    this.enclave.appendLine(entry)
+  }
+
+  /** Fire-and-forget page evaluation (agent rec start/stop control). */
+  evaluateInPage(expression: string): void {
+    if (this.isDisposed) return
+    void this.target.debugger
+      .sendCommand('Runtime.evaluate', { expression, silent: true })
+      .catch(() => {
+        /* target navigating or gone — the next agent-ready re-arms it */
+      })
   }
 
   /** Detach CDP, close spool writers, and delete the spool (recordings were copied out at finalize). */
@@ -196,6 +229,35 @@ export class TargetSession {
     // guards against `debugger;` statements freezing the live target.
     await targetDebugger.sendCommand('Debugger.enable')
     await targetDebugger.sendCommand('Debugger.setSkipAllPauses', { skip: true })
+  }
+
+  /** Inject the page agent: future documents via lifecycle hook, current one by hand. */
+  private async installPageAgent(): Promise<void> {
+    const targetDebugger = this.target.debugger
+    await targetDebugger.sendCommand('Runtime.addBinding', { name: AGENT_BINDING_NAME })
+    await targetDebugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
+      source: this.agentSource,
+    })
+    // The attach happens after dom-ready, so the current document needs a one-off inject.
+    await targetDebugger.sendCommand('Runtime.evaluate', {
+      expression: this.agentSource,
+      silent: true,
+    })
+  }
+
+  /** Validate an agent binding call — the recorded page is hostile and can call it directly. */
+  private onBindingCalled(params: { name?: string; payload?: string }): void {
+    if (params.name !== AGENT_BINDING_NAME || typeof params.payload !== 'string') return
+    if (params.payload.length > AGENT_MESSAGE_MAX_BYTES) return
+    let parsedJson: unknown
+    try {
+      parsedJson = JSON.parse(params.payload)
+    } catch {
+      return
+    }
+    const message = agentMessageSchema.safeParse(parsedJson)
+    if (!message.success) return
+    this.callbacks.onAgentEvent(message.data)
   }
 
   /** Stamp + spool + notify — the single write path for every lane event. */
@@ -271,6 +333,8 @@ export class TargetSession {
           }
         },
       )
+    } else if (method === 'Runtime.bindingCalled') {
+      this.onBindingCalled(params as { name?: string; payload?: string })
     } else if (method === 'Page.frameNavigated') {
       this.onFrameNavigated(params as { frame?: { url?: string; parentId?: string } })
     } else if (method === 'Page.loadEventFired') {

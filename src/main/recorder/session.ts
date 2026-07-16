@@ -188,6 +188,34 @@ export class TargetSession {
       })
   }
 
+  /**
+   * Evaluate in the page and return the JSON value (state snapshot capture).
+   * @returns the expression's returnByValue result, or null on any failure
+   */
+  async evaluateWithResult<TValue>(expression: string): Promise<TValue | null> {
+    if (this.isDisposed) return null
+    try {
+      const result = (await this.target.debugger.sendCommand('Runtime.evaluate', {
+        expression,
+        silent: true,
+        returnByValue: true,
+      })) as { result?: { value?: TValue } }
+      return result.result?.value ?? null
+    } catch {
+      return null
+    }
+  }
+
+  /** Cookies of the target's persist: partition (snapshot → enclave, decision 32). */
+  async readTargetCookies(): Promise<unknown[]> {
+    if (this.isDisposed || this.target.isDestroyed()) return []
+    try {
+      return await this.target.session.cookies.get({})
+    } catch {
+      return []
+    }
+  }
+
   /** Start the filmstrip screencast (recording-only; frames flow to onScreencastFrame). */
   async startScreencast(): Promise<void> {
     await this.target.debugger.sendCommand('Page.startScreencast', {

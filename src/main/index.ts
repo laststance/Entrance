@@ -5,6 +5,7 @@ import { app, BrowserWindow, shell } from 'electron'
 import { openDatabase } from './db'
 import { registerIpcHandlers } from './ipc'
 import { RecordingManager } from './recorder/recording'
+import { recoverAbandonedRecordings } from './recorder/recovery'
 
 /**
  * Entrance main process bootstrap: single window (spec decision 7), macOS
@@ -102,6 +103,8 @@ app.on('web-contents-created', (_ev, contents) => {
 
 void app.whenReady().then(() => {
   openDatabase()
+  // Seal any recording the previous process died holding (endReason: app-crash-recovered).
+  recoverAbandonedRecordings()
   registerIpcHandlers(recordingManager)
   createWindow()
 

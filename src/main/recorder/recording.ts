@@ -1,9 +1,7 @@
 import {
   copyFileSync,
   existsSync,
-  linkSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
   rmSync,
   statfsSync,
@@ -29,11 +27,18 @@ import {
 } from '@shared/envelope'
 import { PUSH, type AttachRequest, type RecStatus } from '@shared/ipc'
 
-import { REC_STATUS_PUSH_INTERVAL_MS, RECORDING_MIN_FREE_DISK_BYTES } from '../constants'
+import {
+  DISK_CHECK_EVERY_N_TICKS,
+  REC_STATUS_PUSH_INTERVAL_MS,
+  RECORDING_MIN_FREE_DISK_BYTES,
+  STORAGE_QUOTA_BYTES,
+  STORAGE_QUOTA_WARN_RATIO,
+} from '../constants'
 import { insertRecording } from '../db'
 import { recordingDir, recordingsRootDir } from '../paths'
 import { defaultRecordingName } from '../utils/default-recording-name'
 import { directorySizeBytes } from '../utils/directory-size-bytes'
+import { hardlinkDirectoryFiles } from '../utils/hardlink-directory-files'
 import { LaneWriterSet } from './lane-writer'
 import { TargetSession, type ScreencastFrame } from './session'
 import { harvestSourcemaps } from './sourcemap-harvest'
@@ -60,6 +65,9 @@ interface ActiveRecording {
   baselineBytes: number
   /** sequencer.nowMono() right before Profiler.start — calibrates profile time to tMono. */
   profilerStartMono: number | null
+  /** Library size at t0 — quota math without rescanning the library every tick. */
+  libraryBytesAtStart: number
+  statusTickCount: number
 }
 
 export class RecordingManager {
@@ -144,10 +152,13 @@ export class RecordingManager {
       counts: { click: 0, fetch: 0, console: 0, error: 0 },
       baselineBytes: this.session.spoolLanes.bytesWritten + this.session.blobs.bytesWritten,
       profilerStartMono: null,
+      libraryBytesAtStart: directorySizeBytes(recordingsRootDir()),
+      statusTickCount: 0,
     }
     // The t0 marker shares the session's canonical clock (decisions 13/27).
     active.recLanes.append(this.session.sequencer.stamp('lifecycle', { kind: 'rec-start', recordingId }))
-    // Crash-recovery marker (decision 25): a live manifest left behind means app-crash-recovered.
+    // Crash-recovery marker (decision 25): a live manifest left behind means
+    // app-crash-recovered; spoolDir lets recovery salvage the session lanes.
     writeFileSync(
       join(dir, LIVE_MANIFEST_FILENAME),
       JSON.stringify({
@@ -159,13 +170,15 @@ export class RecordingManager {
         bundlerVariant: this.session.bundlerVariant,
         t0Mono: active.t0Mono,
         t0Wall: active.t0Wall,
+        spoolDir: this.session.spoolDir,
+        enclaveFilePath: this.session.enclaveFilePath,
       }),
     )
     this.active = active
     // Arm the in-page rrweb recorder — its FullSnapshot becomes the t0 baseline.
     this.session.evaluateInPage(AGENT_REC_START_EXPRESSION)
-    // Screencast + profiler are best-effort: their loss degrades the filmstrip /
-    // highlight, never the recording itself.
+    // Screencast + profiler + snapshot are best-effort: their loss degrades the
+    // filmstrip / highlight / Mode B seeding, never the recording itself.
     const session = this.session
     void session.startScreencast().catch(() => {})
     void session
@@ -176,9 +189,83 @@ export class RecordingManager {
         }
       })
       .catch(() => {})
-    this.statusTimer = setInterval(() => this.pushStatus(), REC_STATUS_PUSH_INTERVAL_MS)
+    this.captureStateSnapshot(active, session)
+    this.statusTimer = setInterval(() => this.statusTick(), REC_STATUS_PUSH_INTERVAL_MS)
     this.pushStatus()
     return { ok: true, recordingId }
+  }
+
+  /**
+   * Browser-state snapshot near t0 (decision 28): readable facts go to
+   * snapshot.json; storage/cookie VALUES are secrets and go to the enclave.
+   */
+  private captureStateSnapshot(active: ActiveRecording, session: TargetSession): void {
+    void (async () => {
+      const pageState = await session.evaluateWithResult<{
+        localStorage: Record<string, string>
+        sessionStorage: Record<string, string>
+        viewport: { width: number; height: number; devicePixelRatio: number }
+        userAgent: string
+      }>(PAGE_STATE_SNAPSHOT_EXPRESSION)
+      writeFileSync(
+        join(active.dir, 'snapshot.json'),
+        JSON.stringify(
+          {
+            tMono: session.sequencer.nowMono(),
+            url: session.currentUrl,
+            viewport: pageState?.viewport ?? null,
+            userAgent: pageState?.userAgent ?? null,
+            localStorageKeys: Object.keys(pageState?.localStorage ?? {}),
+            sessionStorageKeys: Object.keys(pageState?.sessionStorage ?? {}),
+          },
+          null,
+          2,
+        ),
+      )
+      const cookies = await session.readTargetCookies()
+      session.appendEnclaveEntry({
+        kind: 'state-snapshot',
+        tMono: session.sequencer.nowMono(),
+        recordingId: active.recordingId,
+        localStorage: pageState?.localStorage ?? {},
+        sessionStorage: pageState?.sessionStorage ?? {},
+        cookies,
+      })
+    })()
+  }
+
+  /** 500ms cadence: backpressure checks first, then the HUD push (decision 31). */
+  private statusTick(): void {
+    this.checkBackpressure()
+    this.pushStatus()
+  }
+
+  private checkBackpressure(): void {
+    const active = this.active
+    const session = this.session
+    if (!active || !session) return
+    active.statusTickCount += 1
+    const liveBytes =
+      session.spoolLanes.bytesWritten +
+      session.blobs.bytesWritten +
+      active.recLanes.bytesWritten -
+      active.baselineBytes
+    // Hard stop: the library would blow past its quota (decision 31 auto-stop).
+    if (active.libraryBytesAtStart + liveBytes > STORAGE_QUOTA_BYTES) {
+      void this.stop('quota-exceeded')
+      return
+    }
+    // Periodic free-disk probe — a full disk must stop the recording, not corrupt it.
+    if (active.statusTickCount % DISK_CHECK_EVERY_N_TICKS === 0) {
+      try {
+        const disk = statfsSync(recordingsRootDir())
+        if (disk.bavail * disk.bsize < RECORDING_MIN_FREE_DISK_BYTES / 2) {
+          void this.stop('quota-exceeded')
+        }
+      } catch {
+        /* probe failure is not a reason to kill a recording */
+      }
+    }
   }
 
   /**
@@ -358,16 +445,38 @@ export class RecordingManager {
       session.blobs.bytesWritten +
       active.recLanes.bytesWritten -
       active.baselineBytes
+    const isNearQuota =
+      active.libraryBytesAtStart + liveBytes > STORAGE_QUOTA_BYTES * STORAGE_QUOTA_WARN_RATIO
     return {
       state: 'recording',
       recordingId: active.recordingId,
       elapsedMs: Math.max(0, Math.round(session.sequencer.nowMono() - active.t0Mono)),
       bytes: liveBytes,
       counts: { ...active.counts },
-      pressure: null, // soft/hard quota thresholds land in Slice D (decision 31)
+      pressure: isNearQuota ? 'warn' : null,
     }
   }
 }
+
+/** Runs inside the recorded page; storage reads can throw in exotic contexts. */
+const PAGE_STATE_SNAPSHOT_EXPRESSION = `(() => {
+  const dump = (storage) => {
+    const out = {}
+    try {
+      for (let i = 0; i < storage.length; i++) {
+        const key = storage.key(i)
+        if (key !== null) out[key] = storage.getItem(key) ?? ''
+      }
+    } catch {}
+    return out
+  }
+  return {
+    localStorage: dump(window.localStorage),
+    sessionStorage: dump(window.sessionStorage),
+    viewport: { width: innerWidth, height: innerHeight, devicePixelRatio: devicePixelRatio },
+    userAgent: navigator.userAgent,
+  }
+})()`
 
 /** URL origin, or '' when the URL is unparsable (about:blank etc.). */
 function safeOrigin(url: string): string {
@@ -389,23 +498,3 @@ function mergeEventCounts(
   return merged
 }
 
-/** Hardlink every file of sourceDir into destDir (same volume); copy as fallback. */
-function hardlinkDirectoryFiles(sourceDir: string, destDir: string): void {
-  let entries: string[]
-  try {
-    entries = readdirSync(sourceDir)
-  } catch {
-    return
-  }
-  if (entries.length === 0) return
-  mkdirSync(destDir, { recursive: true })
-  for (const name of entries) {
-    const sourcePath = join(sourceDir, name)
-    const destPath = join(destDir, name)
-    try {
-      linkSync(sourcePath, destPath)
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') copyFileSync(sourcePath, destPath)
-    }
-  }
-}

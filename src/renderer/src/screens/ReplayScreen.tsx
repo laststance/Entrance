@@ -1,14 +1,24 @@
 import { Suspense, use, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 
 import { ArrowLeft, Pause, Play } from 'lucide-react'
+import { Group, Panel, Separator } from 'react-resizable-panels'
 
 import { buildTimelineMarkers } from '@shared/timeline-markers'
+import { buildTranscriptItems } from '@shared/transcript-items'
 
 import type { LoadedRecording } from '../lib/replay/load-recording'
 
+import { DebugSidePanel } from '../components/DebugSidePanel'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { RrwebPlayer, type RrwebPlayerHandle } from '../components/RrwebPlayer'
 import { TimelineCanvas } from '../components/TimelineCanvas'
+import { TranscriptPanel } from '../components/TranscriptPanel'
+import {
+  REPLAY_DEBUG_PANEL_DEFAULT_PCT,
+  REPLAY_DEBUG_PANEL_MIN_PCT,
+  REPLAY_TRANSCRIPT_PANEL_DEFAULT_PCT,
+  REPLAY_TRANSCRIPT_PANEL_MIN_PCT,
+} from '../constants'
 import { formatRecClock } from '../lib/format-rec-clock'
 import { loadRecording } from '../lib/replay/load-recording'
 import { playheadStore } from '../lib/replay/playhead-store'
@@ -16,9 +26,9 @@ import { replayClosed } from '../store/appSlice'
 import { useAppDispatch, useAppSelector } from '../store'
 
 /**
- * Screens 1a/1b — replay + debugger. Slice B ships the Mode A player core:
- * rrweb passive replay, transport bar with seek + speed, canonical-clock
- * playhead. Timeline lanes / transcript / code panel land in slices C–E.
+ * Screens 1a/1b — replay + debugger. Mode A: rrweb passive replay between the
+ * 1b transcript (left) and the Console/Network inspector (right), multi-lane
+ * timeline + transport below. Slice E adds the sourcemap code panel.
  */
 export function ReplayScreen() {
   const recordingId = useAppSelector((state) => state.app.replayRecordingId)
@@ -101,26 +111,56 @@ function ReplayLoaded({ loadPromise }: { loadPromise: Promise<LoadedRecording> }
     () => buildTimelineMarkers(recording.lanes, recording.manifest.t0Mono),
     [recording],
   )
+  const transcriptItems = useMemo(
+    () =>
+      buildTranscriptItems(recording.lanes, recording.manifest.t0Mono, recording.manifest.targetUrl),
+    [recording],
+  )
+  const seekTo = (tMonoOffsetMs: number): void => playerRef.current?.seekTo(tMonoOffsetMs)
 
   return (
     <>
       <ReplayTopBar manifest={recording.manifest} />
-      <div className="relative min-h-0 flex-1 bg-black">
-        {hasReplayableDom ? (
-          <RrwebPlayer
-            ref={playerRef}
-            events={recording.rrwebEvents}
-            anchors={recording.timeAnchors}
+      <Group orientation="horizontal" className="min-h-0 flex-1">
+        <Panel
+          defaultSize={`${REPLAY_TRANSCRIPT_PANEL_DEFAULT_PCT}%`}
+          minSize={`${REPLAY_TRANSCRIPT_PANEL_MIN_PCT}%`}
+          className="h-full"
+        >
+          <TranscriptPanel
+            items={transcriptItems}
             durationMs={recording.manifest.durationMs}
+            onSeekAction={seekTo}
           />
-        ) : (
-          <div className="grid h-full place-items-center">
-            <p className="text-[13px] text-muted-foreground">
-              この録画には再生できる画面データがありません
-            </p>
+        </Panel>
+        <Separator className="w-px bg-border transition-colors hover:bg-primary/60 active:bg-primary" />
+        <Panel className="h-full">
+          <div className="relative h-full bg-black">
+            {hasReplayableDom ? (
+              <RrwebPlayer
+                ref={playerRef}
+                events={recording.rrwebEvents}
+                anchors={recording.timeAnchors}
+                durationMs={recording.manifest.durationMs}
+              />
+            ) : (
+              <div className="grid h-full place-items-center">
+                <p className="text-[13px] text-muted-foreground">
+                  この録画には再生できる画面データがありません
+                </p>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </Panel>
+        <Separator className="w-px bg-border transition-colors hover:bg-primary/60 active:bg-primary" />
+        <Panel
+          defaultSize={`${REPLAY_DEBUG_PANEL_DEFAULT_PCT}%`}
+          minSize={`${REPLAY_DEBUG_PANEL_MIN_PCT}%`}
+          className="h-full"
+        >
+          <DebugSidePanel items={transcriptItems} onSeekAction={seekTo} />
+        </Panel>
+      </Group>
       {/* Multi-lane timeline (mock 1a bottom panel; 1c filmstrip folded in as a lane) */}
       <div className="shrink-0 border-t border-border bg-sunken">
         <TimelineCanvas

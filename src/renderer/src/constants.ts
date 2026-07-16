@@ -22,3 +22,9 @@ export const TIMELINE_LABEL_WIDTH_PX = 52
 export const TIMELINE_SCRUB_THROTTLE_MS = 90
 /** Filmstrip thumbnails decoded per recording (evenly sampled from the screencast lane). */
 export const TIMELINE_FILMSTRIP_MAX_FRAMES = 30
+
+/** Replay 3-panel split (mock 1b: transcript left, player center, inspector right). */
+export const REPLAY_TRANSCRIPT_PANEL_DEFAULT_PCT = 22
+export const REPLAY_TRANSCRIPT_PANEL_MIN_PCT = 14
+export const REPLAY_DEBUG_PANEL_DEFAULT_PCT = 24
+export const REPLAY_DEBUG_PANEL_MIN_PCT = 16

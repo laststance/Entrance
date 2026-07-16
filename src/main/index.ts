@@ -1,0 +1,110 @@
+import { join } from 'node:path'
+
+import { app, BrowserWindow, shell } from 'electron'
+
+import { registerIpcHandlers } from './ipc'
+import { detachCdp } from './cdp'
+
+/**
+ * Entrance main process bootstrap: single window (spec decision 7), macOS
+ * hiddenInset chrome, hardened webview hosting (spec decision 21).
+ */
+
+let mainWindow: BrowserWindow | null = null
+
+// Dev-only: expose a debugging port so external QA tooling (electron MCP / Playwright)
+// can drive Entrance's OWN renderer. Never attach external clients to a recorded
+// target's webview — that would detach our recorder session (spec decision 8).
+if (!app.isPackaged) {
+  app.commandLine.appendSwitch('remote-debugging-port', '9222')
+}
+
+/** Origins the embedded target may navigate to — local dev servers only. */
+function isLocalDevUrl(rawUrl: string): boolean {
+  try {
+    const { protocol, hostname } = new URL(rawUrl)
+    return (
+      (protocol === 'http:' || protocol === 'https:') &&
+      ['localhost', '127.0.0.1', '[::1]', '::1'].includes(hostname)
+    )
+  } catch {
+    return false
+  }
+}
+
+function createWindow(): void {
+  mainWindow = new BrowserWindow({
+    width: 1440,
+    height: 900,
+    minWidth: 1080,
+    minHeight: 640,
+    // Traffic lights sit inside the app toolbar, per mock (P0 acceptance criteria).
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 20, y: 16 },
+    backgroundColor: '#191d22',
+    show: false,
+    webPreferences: {
+      preload: join(import.meta.dirname, '../preload/index.mjs'),
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+      // The recorded target is hosted in a <webview> behind the EmbeddedTarget abstraction (spec decision 5).
+      webviewTag: true,
+    },
+  })
+
+  mainWindow.once('ready-to-show', () => mainWindow?.show())
+  mainWindow.on('closed', () => {
+    detachCdp()
+    mainWindow = null
+  })
+
+  // The app UI never opens child windows; external links go to the OS browser.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('https://')) void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+
+  if (process.env.ELECTRON_RENDERER_URL) {
+    void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
+  } else {
+    void mainWindow.loadFile(join(import.meta.dirname, '../renderer/index.html'))
+  }
+}
+
+// Recorded content is hostile input (spec decision 21): pin down every webview
+// before it attaches, regardless of what renderer code asked for.
+app.on('web-contents-created', (_ev, contents) => {
+  contents.on('will-attach-webview', (event, webPreferences, params) => {
+    delete webPreferences.preload
+    webPreferences.nodeIntegration = false
+    webPreferences.contextIsolation = true
+    webPreferences.sandbox = true
+    if (!isLocalDevUrl(params.src)) event.preventDefault()
+  })
+
+  if (contents.getType() === 'webview') {
+    // Keep the embedded target inside local dev origins; external jumps are blocked (P0; endReason lands in P1).
+    contents.on('will-navigate', (event, url) => {
+      if (!isLocalDevUrl(url)) event.preventDefault()
+    })
+    contents.setWindowOpenHandler(({ url }) => {
+      if (url.startsWith('https://')) void shell.openExternal(url)
+      return { action: 'deny' }
+    })
+  }
+})
+
+void app.whenReady().then(() => {
+  registerIpcHandlers(() => mainWindow)
+  createWindow()
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
+})
+
+app.on('window-all-closed', () => {
+  // Single-window dev tool: quitting on close matches user expectation even on macOS.
+  app.quit()
+})

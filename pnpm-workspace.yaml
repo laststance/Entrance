@@ -1,0 +1,6 @@
+# Single-package repo (spec decision 16) — this file only carries pnpm settings.
+allowBuilds:
+  electron: true
+  esbuild: true
+  # Windows Squirrel packager pulled in by electron-builder; never runs on macOS.
+  electron-winstaller: false

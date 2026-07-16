@@ -41,8 +41,11 @@
     --color-background: var(--background);
     /* Entrance-specific tokens sampled from the design mock */
     --color-sunken: var(--surface-sunken);
+    --color-raised: var(--surface-raised);
     --color-rec: var(--rec);
     --color-live: var(--live);
+    --color-ok: var(--live);
+    --color-warn: var(--warn);
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);
@@ -79,6 +82,9 @@
     --ring: #4da3ff;
     --rec: #ff5c5c;
     --live: #34d399;
+    --warn: #fbbf24;
+    /* Cards / raised panels sit one step above the window background */
+    --surface-raised: #1e242b;
     --chart-1: #4da3ff;
     --chart-2: #34d399;
     --chart-3: #fbbf24;

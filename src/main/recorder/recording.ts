@@ -70,6 +70,8 @@ interface ActiveRecording {
   statusTickCount: number
   /** All lane events since t0 (1d status-bar "N events"). */
   totalEvents: number
+  /** First screencast frame's blob hash — becomes the 1e card thumbnail. */
+  thumbnailBlobHash: string | null
 }
 
 export class RecordingManager {
@@ -157,6 +159,7 @@ export class RecordingManager {
       libraryBytesAtStart: directorySizeBytes(recordingsRootDir()),
       statusTickCount: 0,
       totalEvents: 0,
+      thumbnailBlobHash: null,
     }
     // The t0 marker shares the session's canonical clock (decisions 13/27).
     active.recLanes.append(this.session.sequencer.stamp('lifecycle', { kind: 'rec-start', recordingId }))
@@ -333,7 +336,10 @@ export class RecordingManager {
     }
     writeFileSync(join(active.dir, MANIFEST_FILENAME), JSON.stringify(manifest, null, 2))
     rmSync(join(active.dir, LIVE_MANIFEST_FILENAME), { force: true })
-    insertRecording(manifest)
+    insertRecording(manifest, undefined, {
+      thumbnailBlobHash: active.thumbnailBlobHash,
+      tally: { ...active.counts },
+    })
 
     const window = this.getWindow()
     if (window && !window.isDestroyed() && reason !== 'user-stop') {
@@ -351,6 +357,7 @@ export class RecordingManager {
     const active = this.active
     if (!session || !active) return
     const bodyHash = session.blobs.put(frame.jpegBytes)
+    if (active.thumbnailBlobHash === null) active.thumbnailBlobHash = bodyHash
     const event = session.sequencer.stamp('screencast', {
       bodyHash,
       deviceWidth: frame.deviceWidth,

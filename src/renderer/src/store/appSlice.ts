@@ -21,11 +21,13 @@ export interface ConnectedTarget {
 }
 
 export interface AppState {
-  screen: 'empty' | 'shell'
+  screen: 'empty' | 'shell' | 'library' | 'replay'
   servers: DetectedServer[]
   isDetecting: boolean
   connectError: string | null
   target: ConnectedTarget | null
+  /** Recording open on the replay screen (1a/1b); null everywhere else. */
+  replayRecordingId: string | null
 }
 
 const initialState: AppState = {
@@ -34,6 +36,7 @@ const initialState: AppState = {
   isDetecting: false,
   connectError: null,
   target: null,
+  replayRecordingId: null,
 }
 
 /** Probe localhost for dev servers (fills the 1f list). */
@@ -56,6 +59,17 @@ export const disconnectTargetThunk = createAsyncThunk('app/disconnectTarget', as
   await window.entrance.detachTarget()
 })
 
+/** Pick the launch screen: the library is home once any recording exists (mock 1e), 1f otherwise. */
+export const bootstrapScreenThunk = createAsyncThunk('app/bootstrapScreen', async () => {
+  const recordings = await window.entrance.listRecordings()
+  return { hasRecordings: recordings.length > 0 }
+})
+
+/** Leave the recorder for the library — detaches the CDP session with the webview. */
+export const goToLibraryThunk = createAsyncThunk('app/goToLibrary', async () => {
+  await window.entrance.detachTarget()
+})
+
 const appSlice = createSlice({
   name: 'app',
   initialState,
@@ -68,6 +82,20 @@ const appSlice = createSlice({
         state.target.isGone = true
         state.target.isCdpAttached = false
       }
+    },
+    /** 1e card play → replay screen (1a/1b). */
+    replayOpened(state, action: PayloadAction<{ recordingId: string }>) {
+      state.screen = 'replay'
+      state.replayRecordingId = action.payload.recordingId
+    },
+    /** Replay back button → library. */
+    replayClosed(state) {
+      state.screen = 'library'
+      state.replayRecordingId = null
+    },
+    /** 1e 新規録画 → 1f server picker. */
+    newRecordingRequested(state) {
+      state.screen = 'empty'
     },
   },
   extraReducers: (builder) => {
@@ -102,8 +130,17 @@ const appSlice = createSlice({
         state.screen = 'empty'
         state.target = null
       })
+      .addCase(bootstrapScreenThunk.fulfilled, (state, action) => {
+        // Only steer the launch screen — never yank the user out of a live session.
+        if (state.screen === 'empty' && action.payload.hasRecordings) state.screen = 'library'
+      })
+      .addCase(goToLibraryThunk.fulfilled, (state) => {
+        state.screen = 'library'
+        state.target = null
+      })
   },
 })
 
-export const { cdpAttached, targetGone } = appSlice.actions
+export const { cdpAttached, targetGone, replayOpened, replayClosed, newRecordingRequested } =
+  appSlice.actions
 export const appReducer = appSlice.reducer

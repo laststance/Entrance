@@ -97,12 +97,30 @@ export const recStatusSchema = z.object({
 })
 export type RecStatus = z.infer<typeof recStatusSchema>
 
+/** Card-chip counts shown on 1d live HUD and 1e library cards (click/fetch/console/error). */
+export type HudTally = RecStatus['counts']
+
 export const updateRecordingMetaSchema = z.object({
   recordingId: z.string().min(1),
   name: z.string().min(1).max(200).optional(),
   groupId: z.string().nullable().optional(),
 })
 export type UpdateRecordingMeta = z.infer<typeof updateRecordingMetaSchema>
+
+export const createGroupSchema = z.object({
+  name: z.string().min(1).max(100),
+})
+export type CreateGroup = z.infer<typeof createGroupSchema>
+
+export const recordingIdSchema = z.object({
+  recordingId: z.string().min(1),
+})
+export type RecordingIdRequest = z.infer<typeof recordingIdSchema>
+
+export const searchRecordingsSchema = z.object({
+  query: z.string().max(200),
+})
+export type SearchRecordings = z.infer<typeof searchRecordingsSchema>
 
 /** Library row summary (screen 1e; P1 exposes list for save-dialog + tests). */
 export interface RecordingSummary {
@@ -114,6 +132,24 @@ export interface RecordingSummary {
   durationMs: number
   endReason: z.infer<typeof endReasonSchema>
   totalBytes: number
+  /** 1e card chips; backfilled from lanes for pre-P2 recordings. */
+  counts: HudTally
+  /** entrance:// URL of the first screencast frame, or null when none was captured. */
+  thumbnailUrl: string | null
+}
+
+/** One 1e sidebar group row. */
+export interface GroupSummary {
+  id: string
+  name: string
+  recordingCount: number
+}
+
+/** 1e storage meter (spec decision 14: 5GB default quota). */
+export interface StorageUsage {
+  usedBytes: number
+  quotaBytes: number
+  recordingCount: number
 }
 
 /** invoke() channel names — single source of truth so main and preload can never drift. */
@@ -126,6 +162,11 @@ export const IPC = {
   recStop: 'rec:stop',
   updateRecordingMeta: 'recordings:updateMeta',
   listRecordings: 'recordings:list',
+  deleteRecording: 'recordings:delete',
+  searchRecordings: 'recordings:search',
+  listGroups: 'groups:list',
+  createGroup: 'groups:create',
+  storageUsage: 'storage:usage',
 } as const
 
 /** main → renderer push channels. */
@@ -146,6 +187,12 @@ export interface EntranceApi {
   recStop: () => Promise<{ ok: boolean; recordingId?: string; name?: string; error?: string }>
   updateRecordingMeta: (req: UpdateRecordingMeta) => Promise<{ ok: boolean; error?: string }>
   listRecordings: () => Promise<RecordingSummary[]>
+  deleteRecording: (req: RecordingIdRequest) => Promise<{ ok: boolean; error?: string }>
+  /** Returns matching recording ids (FTS over names/URLs — never headers/bodies, decision 32e). */
+  searchRecordings: (req: SearchRecordings) => Promise<string[]>
+  listGroups: () => Promise<GroupSummary[]>
+  createGroup: (req: CreateGroup) => Promise<{ ok: boolean; groupId?: string; error?: string }>
+  storageUsage: () => Promise<StorageUsage>
   onCdpEvent: (cb: (ev: CdpEventSummary) => void) => () => void
   onTargetGone: (cb: () => void) => () => void
   onRecStatus: (cb: (status: RecStatus) => void) => () => void

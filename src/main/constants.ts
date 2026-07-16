@@ -45,8 +45,8 @@ export const SOURCEMAP_FETCH_TIMEOUT_MS = 3000
 /** Whole-harvest budget — a dead dev server must not hold the bundle open forever. */
 export const SOURCEMAP_HARVEST_TOTAL_TIMEOUT_MS = 20000
 
-/** Library storage quota (spec decision 14 default; user-configurable in v2). */
-export const STORAGE_QUOTA_BYTES = 5 * 1024 * 1024 * 1024
+/** Library storage quota (spec decision 14 default; user-configurable in v2). Decimal so the 1e meter reads exactly "5 GB". */
+export const STORAGE_QUOTA_BYTES = 5_000_000_000
 /** Above this fraction of quota the HUD shows pressure:'warn' (decision 31). */
 export const STORAGE_QUOTA_WARN_RATIO = 0.8
 /** Free-disk probe cadence in status ticks (10 ticks × 500ms = every 5s). */

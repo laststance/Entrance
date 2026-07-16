@@ -24,4 +24,8 @@ export const recordings = sqliteTable('recordings', {
   totalBytes: integer('total_bytes').notNull(),
   /** JSON: Partial<Record<Lane, number>> */
   eventCountsJson: text('event_counts_json').notNull(),
+  /** First screencast frame's blob hash (1e card thumbnail); null = no frame captured. */
+  thumbnailBlobHash: text('thumbnail_blob_hash'),
+  /** JSON HudTally for 1e card chips; NULL marks pre-P2 rows awaiting lazy backfill. */
+  tallyJson: text('tally_json'),
 })

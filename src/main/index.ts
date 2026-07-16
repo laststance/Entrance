@@ -4,6 +4,7 @@ import { app, BrowserWindow, shell } from 'electron'
 
 import { openDatabase } from './db'
 import { registerIpcHandlers } from './ipc'
+import { registerEntranceProtocolHandler, registerEntranceScheme } from './protocol'
 import { RecordingManager } from './recorder/recording'
 import { recoverAbandonedRecordings } from './recorder/recovery'
 
@@ -23,6 +24,9 @@ const recordingManager = new RecordingManager(() => mainWindow)
 if (!app.isPackaged) {
   app.commandLine.appendSwitch('remote-debugging-port', '9222')
 }
+
+// The entrance:// bulk read plane must claim its privileges before app ready (decision 12).
+registerEntranceScheme()
 
 /** Origins the embedded target may navigate to — local dev servers only. */
 function isLocalDevUrl(rawUrl: string): boolean {
@@ -105,6 +109,7 @@ void app.whenReady().then(() => {
   openDatabase()
   // Seal any recording the previous process died holding (endReason: app-crash-recovered).
   recoverAbandonedRecordings()
+  registerEntranceProtocolHandler()
   registerIpcHandlers(recordingManager)
   createWindow()
 

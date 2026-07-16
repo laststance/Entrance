@@ -17,7 +17,11 @@ import '@fontsource/jetbrains-mono/600.css'
 
 import './index.css'
 import App from './App'
+import { bootstrapScreenThunk } from './store/appSlice'
 import { store } from './store'
+
+// Launch screen: the library once any recording exists, 1f otherwise (mock 1e is home).
+void store.dispatch(bootstrapScreenThunk())
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

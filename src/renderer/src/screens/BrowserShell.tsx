@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 
-import { ChevronLeft, ChevronRight, Layers, RotateCw, Square, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Layers, LibraryBig, RotateCw, Square, X } from 'lucide-react'
 
 import type { CdpEventSummary } from '@shared/ipc'
 
@@ -10,7 +10,7 @@ import { REC_CLOCK_TICK_MS, REC_TOAST_MAX_ROWS } from '../constants'
 import { cdpLogStore } from '../lib/cdp-log-store'
 import { formatRecClock } from '../lib/format-rec-clock'
 import { recStatusStore, type RecStatusSnapshot } from '../lib/rec-status-store'
-import { cdpAttached, disconnectTargetThunk, targetGone } from '../store/appSlice'
+import { cdpAttached, disconnectTargetThunk, goToLibraryThunk, targetGone } from '../store/appSlice'
 import { useAppDispatch, useAppSelector } from '../store'
 
 /**
@@ -94,6 +94,17 @@ export function BrowserShell() {
         </div>
 
         <div className="flex-1" />
+
+        <button
+          type="button"
+          disabled={isRecording}
+          title={isRecording ? '録画中はライブラリへ移動できません' : 'ライブラリへ'}
+          onClick={() => void dispatch(goToLibraryThunk())}
+          className="app-no-drag flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12px] text-muted-foreground transition-colors hover:bg-white/[0.04] hover:text-foreground disabled:opacity-40"
+        >
+          <LibraryBig className="h-3.5 w-3.5" />
+          ライブラリ
+        </button>
 
         <button
           type="button"

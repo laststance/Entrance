@@ -6,8 +6,11 @@ import {
   type AttachRequest,
   type CdpEventSummary,
   type ConnectRequest,
+  type CreateGroup,
   type EntranceApi,
+  type RecordingIdRequest,
   type RecStatus,
+  type SearchRecordings,
   type UpdateRecordingMeta,
 } from '@shared/ipc'
 
@@ -33,6 +36,11 @@ const api: EntranceApi = {
   updateRecordingMeta: (req: UpdateRecordingMeta) =>
     ipcRenderer.invoke(IPC.updateRecordingMeta, req),
   listRecordings: () => ipcRenderer.invoke(IPC.listRecordings),
+  deleteRecording: (req: RecordingIdRequest) => ipcRenderer.invoke(IPC.deleteRecording, req),
+  searchRecordings: (req: SearchRecordings) => ipcRenderer.invoke(IPC.searchRecordings, req),
+  listGroups: () => ipcRenderer.invoke(IPC.listGroups),
+  createGroup: (req: CreateGroup) => ipcRenderer.invoke(IPC.createGroup, req),
+  storageUsage: () => ipcRenderer.invoke(IPC.storageUsage),
   onCdpEvent: (cb) => onPush<CdpEventSummary>(PUSH.cdpEvent, cb),
   onTargetGone: (cb) => onPush<undefined>(PUSH.targetGone, () => cb()),
   onRecStatus: (cb) => onPush<RecStatus>(PUSH.recStatus, cb),

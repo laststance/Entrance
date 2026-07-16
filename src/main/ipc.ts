@@ -1,15 +1,32 @@
+import { rmSync } from 'node:fs'
+
 import { ipcMain } from 'electron'
 
 import {
   IPC,
   attachRequestSchema,
   connectRequestSchema,
+  createGroupSchema,
+  recordingIdSchema,
+  searchRecordingsSchema,
   updateRecordingMetaSchema,
+  type StorageUsage,
 } from '@shared/ipc'
 
-import { listRecordings, updateRecordingMeta } from './db'
+import { STORAGE_QUOTA_BYTES } from './constants'
+import {
+  countRecordings,
+  createGroup,
+  deleteRecordingRow,
+  listGroups,
+  listRecordings,
+  searchRecordingIds,
+  updateRecordingMeta,
+} from './db'
 import { detectServers } from './detector'
+import { recordingDir, recordingsRootDir } from './paths'
 import type { RecordingManager } from './recorder/recording'
+import { directorySizeBytes } from './utils/directory-size-bytes'
 
 /**
  * Control-plane IPC registration (spec decision 12): every handler Zod-parses
@@ -62,4 +79,43 @@ export function registerIpcHandlers(recordingManager: RecordingManager): void {
   })
 
   ipcMain.handle(IPC.listRecordings, async () => listRecordings())
+
+  ipcMain.handle(IPC.deleteRecording, async (_ev, raw: unknown) => {
+    const parsed = recordingIdSchema.safeParse(raw)
+    if (!parsed.success) return { ok: false, error: 'invalid recording id' }
+    try {
+      deleteRecordingRow(parsed.data.recordingId)
+      // The bundle dir is content the DB row referenced — remove it with the row.
+      rmSync(recordingDir(parsed.data.recordingId), { recursive: true, force: true })
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: String(err) }
+    }
+  })
+
+  ipcMain.handle(IPC.searchRecordings, async (_ev, raw: unknown) => {
+    const parsed = searchRecordingsSchema.safeParse(raw)
+    if (!parsed.success) return []
+    return searchRecordingIds(parsed.data.query)
+  })
+
+  ipcMain.handle(IPC.listGroups, async () => listGroups())
+
+  ipcMain.handle(IPC.createGroup, async (_ev, raw: unknown) => {
+    const parsed = createGroupSchema.safeParse(raw)
+    if (!parsed.success) return { ok: false, error: 'invalid group name' }
+    try {
+      return { ok: true, groupId: createGroup(parsed.data.name) }
+    } catch (err) {
+      return { ok: false, error: String(err) }
+    }
+  })
+
+  ipcMain.handle(IPC.storageUsage, async (): Promise<StorageUsage> => {
+    return {
+      usedBytes: directorySizeBytes(recordingsRootDir()),
+      quotaBytes: STORAGE_QUOTA_BYTES,
+      recordingCount: countRecordings(),
+    }
+  })
 }

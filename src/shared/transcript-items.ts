@@ -3,6 +3,8 @@ import { z } from 'zod'
 import type { Lane } from './envelope'
 import type { ReplayLaneEvent } from './replay'
 
+import { lastIndexAtOrBefore } from './last-index-at-or-before'
+
 /**
  * Lane events → the 1b transcript rows (numbered event list with filter chips
  * すべて/操作/Network/エラー). Fetch rows join request+response by requestId;
@@ -192,19 +194,10 @@ export function buildTranscriptItems(
  * @example transcriptIndexAt(items, 12_400) // => 5
  */
 export function transcriptIndexAt(items: TranscriptItem[], tMonoOffsetMs: number): number {
-  let low = 0
-  let high = items.length - 1
-  let found = -1
-  while (low <= high) {
-    const mid = (low + high) >> 1
-    if (items[mid].tMonoOffset <= tMonoOffsetMs) {
-      found = mid
-      low = mid + 1
-    } else {
-      high = mid - 1
-    }
-  }
-  return found
+  return lastIndexAtOrBefore(
+    items.map((item) => item.tMonoOffset),
+    tMonoOffsetMs,
+  )
 }
 
 /** "/dashboard?x=1" from an absolute URL; falls back to the raw string. */

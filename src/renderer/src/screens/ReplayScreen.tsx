@@ -3,6 +3,8 @@ import { Suspense, use, useMemo, useRef, useState, useSyncExternalStore } from '
 import { ArrowLeft, Pause, Play } from 'lucide-react'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 
+import { buildCodeAnchors } from '@shared/code-anchors'
+import { buildProfileTimeline } from '@shared/cpuprofile-timeline'
 import { buildTimelineMarkers } from '@shared/timeline-markers'
 import { buildTranscriptItems } from '@shared/transcript-items'
 
@@ -22,6 +24,7 @@ import {
 import { formatRecClock } from '../lib/format-rec-clock'
 import { loadRecording } from '../lib/replay/load-recording'
 import { playheadStore } from '../lib/replay/playhead-store'
+import { createSourceResolver } from '../lib/replay/source-resolver'
 import { replayClosed } from '../store/appSlice'
 import { useAppDispatch, useAppSelector } from '../store'
 
@@ -116,6 +119,21 @@ function ReplayLoaded({ loadPromise }: { loadPromise: Promise<LoadedRecording> }
       buildTranscriptItems(recording.lanes, recording.manifest.t0Mono, recording.manifest.targetUrl),
     [recording],
   )
+  const codeAnchors = useMemo(
+    () => buildCodeAnchors(recording.lanes, recording.manifest.t0Mono),
+    [recording],
+  )
+  const profileTimeline = useMemo(
+    () =>
+      recording.cpuProfile
+        ? buildProfileTimeline(recording.cpuProfile, recording.manifest.t0Mono)
+        : null,
+    [recording],
+  )
+  const sourceResolver = useMemo(
+    () => createSourceResolver(recording.manifest.recordingId, recording.sourcemapIndex),
+    [recording],
+  )
   const seekTo = (tMonoOffsetMs: number): void => playerRef.current?.seekTo(tMonoOffsetMs)
 
   return (
@@ -158,7 +176,13 @@ function ReplayLoaded({ loadPromise }: { loadPromise: Promise<LoadedRecording> }
           minSize={`${REPLAY_DEBUG_PANEL_MIN_PCT}%`}
           className="h-full"
         >
-          <DebugSidePanel items={transcriptItems} onSeekAction={seekTo} />
+          <DebugSidePanel
+            items={transcriptItems}
+            anchors={codeAnchors}
+            profileTimeline={profileTimeline}
+            resolver={sourceResolver}
+            onSeekAction={seekTo}
+          />
         </Panel>
       </Group>
       {/* Multi-lane timeline (mock 1a bottom panel; 1c filmstrip folded in as a lane) */}

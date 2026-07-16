@@ -28,3 +28,6 @@ export const REPLAY_TRANSCRIPT_PANEL_DEFAULT_PCT = 22
 export const REPLAY_TRANSCRIPT_PANEL_MIN_PCT = 14
 export const REPLAY_DEBUG_PANEL_DEFAULT_PCT = 24
 export const REPLAY_DEBUG_PANEL_MIN_PCT = 16
+
+/** After passing a console/error anchor, its line stays highlighted this long; then the profile takes over. */
+export const CODE_ANCHOR_FRESH_WINDOW_MS = 1500

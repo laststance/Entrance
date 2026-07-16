@@ -1,4 +1,5 @@
 import { LANES, type Lane } from '@shared/envelope'
+import { cpuProfileFileSchema, type CpuProfileFile } from '@shared/cpuprofile-timeline'
 import {
   parseLaneJsonl,
   recordingManifestSchema,
@@ -6,6 +7,8 @@ import {
   type ReplayManifest,
 } from '@shared/replay'
 import { buildRrwebTimeMap, type RrwebTimeAnchor } from '@shared/rrweb-time-map'
+
+import { sourcemapIndexSchema, type SourcemapIndexEntry } from './source-resolver'
 
 /**
  * Everything the replay screen needs, loaded once over the entrance:// bulk
@@ -18,6 +21,10 @@ export interface LoadedRecording {
   rrwebEvents: unknown[]
   /** Canonical-clock ⇄ replayer-clock anchors (decision 13). */
   timeAnchors: RrwebTimeAnchor[]
+  /** Harvested sourcemap index (empty when the harvest never ran). */
+  sourcemapIndex: SourcemapIndexEntry[]
+  /** V8 CPU profile + calibration (decision 3); null for pre-P1 or crashed recordings. */
+  cpuProfile: CpuProfileFile | null
 }
 
 /**
@@ -34,13 +41,31 @@ export async function loadRecording(recordingId: string): Promise<LoadedRecordin
   const manifest = recordingManifestSchema.parse(await manifestResponse.json())
 
   const lanes: Partial<Record<Lane, ReplayLaneEvent[]>> = {}
-  await Promise.all(
-    LANES.map(async (lane) => {
+  let sourcemapIndex: SourcemapIndexEntry[] = []
+  let cpuProfile: CpuProfileFile | null = null
+  await Promise.all([
+    ...LANES.map(async (lane) => {
       const laneResponse = await fetch(`entrance://recording/${recordingId}/lanes/${lane}.jsonl`)
       if (!laneResponse.ok) return
       lanes[lane] = parseLaneJsonl(await laneResponse.text())
     }),
-  )
+    (async () => {
+      const indexResponse = await fetch(
+        `entrance://recording/${recordingId}/sourcemaps/index.json`,
+      )
+      if (!indexResponse.ok) return
+      const parsed = sourcemapIndexSchema.safeParse(await indexResponse.json())
+      if (parsed.success) sourcemapIndex = parsed.data.maps
+    })(),
+    (async () => {
+      const profileResponse = await fetch(
+        `entrance://recording/${recordingId}/profile.cpuprofile.json`,
+      )
+      if (!profileResponse.ok) return
+      const parsed = cpuProfileFileSchema.safeParse(await profileResponse.json())
+      if (parsed.success) cpuProfile = parsed.data
+    })(),
+  ])
 
   const rrwebLane = lanes.rrweb ?? []
   return {
@@ -48,5 +73,7 @@ export async function loadRecording(recordingId: string): Promise<LoadedRecordin
     lanes,
     rrwebEvents: rrwebLane.map((event) => event.payload),
     timeAnchors: buildRrwebTimeMap(rrwebLane, manifest.t0Mono),
+    sourcemapIndex,
+    cpuProfile,
   }
 }

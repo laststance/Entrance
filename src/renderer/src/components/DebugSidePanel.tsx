@@ -2,21 +2,27 @@ import { memo, useMemo, useState, useSyncExternalStore } from 'react'
 
 import { Virtuoso } from 'react-virtuoso'
 
+import type { CodeAnchor } from '@shared/code-anchors'
+import type { ProfileTimeline } from '@shared/cpuprofile-timeline'
 import type { TranscriptItem } from '@shared/transcript-items'
 import { transcriptIndexAt } from '@shared/transcript-items'
 
+import type { SourceResolver } from '../lib/replay/source-resolver'
+
 import { formatRecClock } from '../lib/format-rec-clock'
 import { playheadStore } from '../lib/replay/playhead-store'
+import { CodePanel } from './CodePanel'
 
 /**
- * Mock 1a right inspector — Console / Network tabs over the recorded lanes,
- * playhead-synced (rows after the playhead are dimmed "not yet happened").
- * Sources tab (CodeMirror + sourcemaps) joins in slice E.
+ * Mock 1a right inspector — Sources (sourcemap code panel) / Console / Network
+ * tabs over the recorded lanes, playhead-synced (rows after the playhead are
+ * dimmed "not yet happened").
  */
 
-type DebugTab = 'console' | 'network'
+type DebugTab = 'sources' | 'console' | 'network'
 
 const TABS: Array<{ id: DebugTab; label: string }> = [
+  { id: 'sources', label: 'Sources' },
   { id: 'console', label: 'Console' },
   { id: 'network', label: 'Network' },
 ]
@@ -30,23 +36,18 @@ const CONSOLE_TITLE_COLORS: Record<string, string> = {
 
 export function DebugSidePanel({
   items,
+  anchors,
+  profileTimeline,
+  resolver,
   onSeekAction,
 }: {
   items: TranscriptItem[]
+  anchors: CodeAnchor[]
+  profileTimeline: ProfileTimeline | null
+  resolver: SourceResolver
   onSeekAction: (tMonoOffsetMs: number) => void
 }) {
-  const [tab, setTab] = useState<DebugTab>('console')
-  const playhead = useSyncExternalStore(playheadStore.subscribe, playheadStore.getSnapshot)
-
-  const consoleItems = useMemo(
-    () => items.filter((item) => item.kind === 'console' || item.kind === 'error'),
-    [items],
-  )
-  const networkItems = useMemo(() => items.filter((item) => item.kind === 'fetch'), [items])
-
-  const tabItems = tab === 'console' ? consoleItems : networkItems
-  // Rows after this index haven't "happened" yet at the current playhead.
-  const reachedIndex = transcriptIndexAt(tabItems, playhead.tMonoOffsetMs)
+  const [tab, setTab] = useState<DebugTab>('sources')
 
   return (
     <div className="flex h-full min-h-0 flex-col border-l border-border">
@@ -66,9 +67,38 @@ export function DebugSidePanel({
           </button>
         ))}
       </div>
-      <DebugRowList tabItems={tabItems} reachedIndex={reachedIndex} onSeekAction={onSeekAction} />
+      {tab === 'sources' ? (
+        <CodePanel anchors={anchors} profileTimeline={profileTimeline} resolver={resolver} />
+      ) : (
+        <DebugLaneTab tab={tab} items={items} onSeekAction={onSeekAction} />
+      )}
     </div>
   )
+}
+
+/** Console/Network tab body — subscribes to the playhead for future-row dimming. */
+function DebugLaneTab({
+  tab,
+  items,
+  onSeekAction,
+}: {
+  tab: 'console' | 'network'
+  items: TranscriptItem[]
+  onSeekAction: (tMonoOffsetMs: number) => void
+}) {
+  const playhead = useSyncExternalStore(playheadStore.subscribe, playheadStore.getSnapshot)
+
+  const consoleItems = useMemo(
+    () => items.filter((item) => item.kind === 'console' || item.kind === 'error'),
+    [items],
+  )
+  const networkItems = useMemo(() => items.filter((item) => item.kind === 'fetch'), [items])
+
+  const tabItems = tab === 'console' ? consoleItems : networkItems
+  // Rows after this index haven't "happened" yet at the current playhead.
+  const reachedIndex = transcriptIndexAt(tabItems, playhead.tMonoOffsetMs)
+
+  return <DebugRowList tabItems={tabItems} reachedIndex={reachedIndex} onSeekAction={onSeekAction} />
 }
 
 /** Memoized so 100Hz playhead notifies re-render only at row boundaries. */

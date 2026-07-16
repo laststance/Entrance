@@ -130,3 +130,17 @@
 .app-drag [role="button"] {
   -webkit-app-region: no-drag;
 }
+
+/* Code panel: the line resolved as "executing now" (decision 3 highlight). */
+.cm-exec-line {
+  background: color-mix(in srgb, var(--primary) 16%, transparent);
+  box-shadow: inset 2px 0 0 var(--primary);
+}
+/* CodeMirror fills its panel and inherits the app's mono sizing. */
+.cm-theme, .cm-editor {
+  height: 100%;
+}
+.cm-editor .cm-scroller {
+  font-size: 11.5px;
+  user-select: text;
+}

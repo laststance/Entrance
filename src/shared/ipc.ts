@@ -61,7 +61,9 @@ export const cdpEventSummarySchema = z.object({
   method: z.string(),
   /** One-line human summary for the log row */
   summary: z.string(),
-  kind: z.enum(['network', 'console', 'error', 'page', 'other']),
+  kind: z.enum(['network', 'console', 'error', 'page', 'input', 'other']),
+  /** 'fetch-api' marks XHR/fetch traffic — the 1d toasts show only app data calls. */
+  subtype: z.enum(['fetch-api']).optional(),
 })
 export type CdpEventSummary = z.infer<typeof cdpEventSummarySchema>
 
@@ -88,6 +90,8 @@ export const recStatusSchema = z.object({
     console: z.number(),
     error: z.number(),
   }),
+  /** All lane events recorded since t0 (1d status-bar "N events"). */
+  totalEvents: z.number(),
   /** backpressure signal: null=ok, 'warn'=soft threshold, hard threshold auto-stops */
   pressure: z.enum(['warn']).nullable(),
 })

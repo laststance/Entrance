@@ -68,6 +68,8 @@ interface ActiveRecording {
   /** Library size at t0 — quota math without rescanning the library every tick. */
   libraryBytesAtStart: number
   statusTickCount: number
+  /** All lane events since t0 (1d status-bar "N events"). */
+  totalEvents: number
 }
 
 export class RecordingManager {
@@ -154,6 +156,7 @@ export class RecordingManager {
       profilerStartMono: null,
       libraryBytesAtStart: directorySizeBytes(recordingsRootDir()),
       statusTickCount: 0,
+      totalEvents: 0,
     }
     // The t0 marker shares the session's canonical clock (decisions 13/27).
     active.recLanes.append(this.session.sequencer.stamp('lifecycle', { kind: 'rec-start', recordingId }))
@@ -367,6 +370,19 @@ export class RecordingManager {
       session.evaluateInPage(AGENT_REC_START_EXPRESSION)
       return
     }
+    // Clicks join the 1d live feed (keys/scroll stay out: noise + secrecy).
+    if (message.lane === 'input' && message.payload.kind === 'click') {
+      const window = this.getWindow()
+      if (window && !window.isDestroyed()) {
+        window.webContents.send(PUSH.cdpEvent, {
+          ts: Date.now(),
+          domain: 'Agent',
+          method: 'input.click',
+          kind: 'input',
+          summary: `click ${message.payload.selector || `(${message.payload.x}, ${message.payload.y})`}`,
+        })
+      }
+    }
     let payload: unknown = message.payload
     if (message.lane === 'input' && message.payload.kind === 'key' && message.payload.secret) {
       // Real keystroke goes to the enclave (decision 32d); the lane keeps the masked shell.
@@ -389,6 +405,7 @@ export class RecordingManager {
   private tallyLaneEvent(event: LaneEvent): void {
     const active = this.active
     if (!active || event.tMono < active.t0Mono) return
+    active.totalEvents += 1
     const payload = event.payload as {
       phase?: string
       resourceType?: string
@@ -437,6 +454,7 @@ export class RecordingManager {
         elapsedMs: 0,
         bytes: 0,
         counts: { click: 0, fetch: 0, console: 0, error: 0 },
+        totalEvents: 0,
         pressure: null,
       }
     }
@@ -453,6 +471,7 @@ export class RecordingManager {
       elapsedMs: Math.max(0, Math.round(session.sequencer.nowMono() - active.t0Mono)),
       bytes: liveBytes,
       counts: { ...active.counts },
+      totalEvents: active.totalEvents,
       pressure: isNearQuota ? 'warn' : null,
     }
   }

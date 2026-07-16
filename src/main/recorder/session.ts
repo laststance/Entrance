@@ -660,13 +660,29 @@ function summarizeForLiveLog(
   params: Record<string, unknown>,
 ): CdpEventSummary | null {
   const ts = Date.now()
+  // XHR/fetch traffic is marked so the 1d toasts can show app data calls only.
+  const isFetchApi = params.type === 'XHR' || params.type === 'Fetch'
   if (method === 'Network.requestWillBeSent') {
     const req = params.request as { method?: string; url?: string } | undefined
-    return { ts, domain: 'Network', method, kind: 'network', summary: `→ ${req?.method ?? ''} ${req?.url ?? ''}` }
+    return {
+      ts,
+      domain: 'Network',
+      method,
+      kind: 'network',
+      subtype: isFetchApi ? 'fetch-api' : undefined,
+      summary: `→ ${req?.method ?? ''} ${req?.url ?? ''}`,
+    }
   }
   if (method === 'Network.responseReceived') {
     const res = params.response as { status?: number; url?: string } | undefined
-    return { ts, domain: 'Network', method, kind: 'network', summary: `← ${res?.status ?? ''} ${res?.url ?? ''}` }
+    return {
+      ts,
+      domain: 'Network',
+      method,
+      kind: 'network',
+      subtype: isFetchApi ? 'fetch-api' : undefined,
+      summary: `← ${res?.status ?? ''} ${res?.url ?? ''}`,
+    }
   }
   if (method === 'Runtime.consoleAPICalled') {
     const type = String(params.type ?? 'log')

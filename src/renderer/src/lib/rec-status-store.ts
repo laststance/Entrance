@@ -11,10 +11,17 @@ const IDLE_STATUS: RecStatus = {
   elapsedMs: 0,
   bytes: 0,
   counts: { click: 0, fetch: 0, console: 0, error: 0 },
+  totalEvents: 0,
   pressure: null,
 }
 
-let currentStatus: RecStatus = IDLE_STATUS
+/** Status plus its arrival time — the HUD clock interpolates between 500ms pushes. */
+export interface RecStatusSnapshot {
+  status: RecStatus
+  receivedAt: number
+}
+
+let currentSnapshot: RecStatusSnapshot = { status: IDLE_STATUS, receivedAt: 0 }
 const listeners = new Set<() => void>()
 
 function emitChange(): void {
@@ -23,18 +30,18 @@ function emitChange(): void {
 
 export const recStatusStore = {
   set(status: RecStatus): void {
-    currentStatus = status
+    currentSnapshot = { status, receivedAt: Date.now() }
     emitChange()
   },
   reset(): void {
-    currentStatus = IDLE_STATUS
+    currentSnapshot = { status: IDLE_STATUS, receivedAt: 0 }
     emitChange()
   },
   subscribe(listener: () => void): () => void {
     listeners.add(listener)
     return () => listeners.delete(listener)
   },
-  getSnapshot(): RecStatus {
-    return currentStatus
+  getSnapshot(): RecStatusSnapshot {
+    return currentSnapshot
   },
 }

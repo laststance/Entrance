@@ -1,25 +1,27 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 
-import { ChevronLeft, ChevronRight, Layers, RotateCw, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Layers, RotateCw, Square, X } from 'lucide-react'
 
 import type { CdpEventSummary } from '@shared/ipc'
 
 import { EmbeddedTarget, type EmbeddedTargetHandle } from '../components/EmbeddedTarget'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { REC_CLOCK_TICK_MS, REC_TOAST_MAX_ROWS } from '../constants'
 import { cdpLogStore } from '../lib/cdp-log-store'
-import { formatElapsed } from '../lib/format-elapsed'
-import { recStatusStore } from '../lib/rec-status-store'
+import { formatRecClock } from '../lib/format-rec-clock'
+import { recStatusStore, type RecStatusSnapshot } from '../lib/rec-status-store'
 import { cdpAttached, disconnectTargetThunk, targetGone } from '../store/appSlice'
 import { useAppDispatch, useAppSelector } from '../store'
 
 /**
- * Browser shell: toolbar + embedded target + CDP live log (P0 skeleton of the
- * recorder window; the log panel grows into screen 1d's live feed in P1).
- * Rendered by App once a target is connected.
+ * Browser shell: toolbar + embedded target + live feed. Idle it shows the CDP
+ * log panel; while recording it becomes screen 1d — browser full-bleed, REC
+ * pill, event toasts bottom-right, one-line status bar (panels folded).
  */
 export function BrowserShell() {
   const dispatch = useAppDispatch()
   const target = useAppSelector((state) => state.app.target)
+  const { isRecording } = useRecClock()
   const embedRef = useRef<EmbeddedTargetHandle | null>(null)
   const [currentUrl, setCurrentUrl] = useState(target?.url ?? '')
 
@@ -31,7 +33,7 @@ export function BrowserShell() {
       recStatusStore.set(status),
     )
     const unsubscribeAutoStopped = window.entrance.onRecAutoStopped(({ reason }) =>
-      // Surface the honest auto-stop in the live log (proper 1d toast lands in Slice E).
+      // Surface the honest auto-stop in the live log (decision 25).
       cdpLogStore.push({
         ts: Date.now(),
         domain: 'Recorder',
@@ -102,7 +104,7 @@ export function BrowserShell() {
           切断
         </button>
 
-        <RecButton />
+        <RecHud />
       </div>
 
       {target.isGone && (
@@ -129,9 +131,159 @@ export function BrowserShell() {
           }}
           onNavigated={setCurrentUrl}
         />
+        {isRecording && <LiveEventToasts />}
       </div>
 
-      <CdpEventLog />
+      {/* Recording folds the log panel into the one-line 1d status bar */}
+      {isRecording ? <RecStatusBar /> : <CdpEventLog />}
+    </div>
+  )
+}
+
+/**
+ * Recording clock shared by the HUD pieces: subscribes to rec:status pushes and
+ * interpolates between them so the mock's centisecond REC clock keeps moving.
+ */
+function useRecClock(): { isRecording: boolean; elapsedMs: number; snapshot: RecStatusSnapshot } {
+  const snapshot = useSyncExternalStore(recStatusStore.subscribe, recStatusStore.getSnapshot)
+  const isRecording = snapshot.status.state === 'recording'
+  const [clock, setClock] = useState<{ recordingId: string; ms: number } | null>(null)
+  useEffect(() => {
+    if (!isRecording) return
+    // Interpolation happens on ticks only (render must stay pure — no Date.now there).
+    const interval = setInterval(() => {
+      const current = recStatusStore.getSnapshot()
+      if (current.status.state !== 'recording' || !current.status.recordingId) return
+      setClock({
+        recordingId: current.status.recordingId,
+        ms: current.status.elapsedMs + (Date.now() - current.receivedAt),
+      })
+    }, REC_CLOCK_TICK_MS)
+    return () => clearInterval(interval)
+  }, [isRecording])
+  // Interpolated value counts only for the CURRENT recording; otherwise use the raw push.
+  const isClockCurrent = clock !== null && clock.recordingId === snapshot.status.recordingId
+  const elapsedMs = isRecording
+    ? isClockCurrent
+      ? Math.max(clock.ms, snapshot.status.elapsedMs)
+      : snapshot.status.elapsedMs
+    : 0
+  return { isRecording, elapsedMs, snapshot }
+}
+
+/** REC pill + stop control (mock 1d top-right); a plain Rec button while idle. */
+function RecHud() {
+  const { isRecording, elapsedMs, snapshot } = useRecClock()
+  const [lastError, setLastError] = useState<string | null>(null)
+
+  const handleStart = (): void => {
+    setLastError(null)
+    void window.entrance.recStart().then((result) => {
+      if (!result.ok) setLastError(result.error ?? '録画を開始できませんでした')
+    })
+  }
+  const handleStop = (): void => {
+    void window.entrance.recStop().then((result) => {
+      if (!result.ok) setLastError(result.error ?? '停止に失敗しました')
+    })
+  }
+
+  if (!isRecording) {
+    return (
+      <div className="app-no-drag flex items-center gap-2.5">
+        {lastError && (
+          <span className="max-w-[240px] truncate text-[11px] text-rec">{lastError}</span>
+        )}
+        <button
+          type="button"
+          onClick={handleStart}
+          className="flex h-8 items-center gap-2 rounded-lg border border-border bg-sunken px-4 text-[13px] font-semibold transition-colors hover:bg-white/[0.05]"
+        >
+          <span className="h-2 w-2 rounded-full bg-rec" />
+          Rec
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="app-no-drag flex items-center gap-2">
+      {snapshot.status.pressure === 'warn' && (
+        <span className="rounded bg-yellow-500/15 px-1.5 py-0.5 text-[10.5px] text-yellow-400">
+          容量残りわずか
+        </span>
+      )}
+      <span className="flex h-8 items-center gap-2 rounded-lg border border-rec/60 bg-rec/15 px-3 font-mono text-[12.5px] font-bold tracking-wide text-rec">
+        <span className="h-2 w-2 animate-pulse rounded-full bg-rec" />
+        REC {formatRecClock(elapsedMs)}
+      </span>
+      <button
+        type="button"
+        onClick={handleStop}
+        title="録画を停止"
+        className="grid h-8 w-8 place-items-center rounded-lg border border-rec/60 bg-rec/10 text-rec transition-colors hover:bg-rec/25"
+      >
+        <Square className="h-3 w-3 fill-current" />
+      </button>
+    </div>
+  )
+}
+
+/** Bottom-right stack of recent meaningful events while recording (mock 1d toasts). */
+function LiveEventToasts() {
+  const rows = useSyncExternalStore(cdpLogStore.subscribe, cdpLogStore.getSnapshot)
+  const recentRows = rows.filter(isMeaningfulRecEvent).slice(-REC_TOAST_MAX_ROWS)
+  if (recentRows.length === 0) return null
+  return (
+    <div className="pointer-events-none absolute right-3 bottom-3 z-10 flex w-[360px] flex-col gap-1.5">
+      {recentRows.map((row, index) => (
+        <div
+          key={`${row.ts}-${index}`}
+          className="flex items-center gap-2 rounded-lg border border-border bg-sunken/95 px-3 py-1.5 font-mono text-[11px] shadow-lg"
+        >
+          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${TOAST_DOT_CLASS[row.kind]}`} />
+          <span className="min-w-0 flex-1 truncate text-foreground/85">
+            <span className={`mr-1.5 font-semibold ${KIND_TEXT_CLASS[row.kind]}`}>
+              {toastLabel(row)}
+            </span>
+            {toastBody(row)}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** One-line live status bar replacing the log panel while recording (mock 1d bottom). */
+function RecStatusBar() {
+  const { elapsedMs, snapshot } = useRecClock()
+  const rows = useSyncExternalStore(cdpLogStore.subscribe, cdpLogStore.getSnapshot)
+  const recentRows = rows.filter(isMeaningfulRecEvent).slice(-REC_TOAST_MAX_ROWS)
+  const { counts, totalEvents } = snapshot.status
+  return (
+    <div className="flex h-8 shrink-0 items-center gap-3 overflow-hidden border-t border-border bg-sunken px-3 font-mono text-[11px]">
+      <span className="flex shrink-0 items-center gap-1.5 font-bold text-rec">
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-rec" />
+        REC {formatRecClock(elapsedMs)}
+      </span>
+      <span className="h-3.5 w-px shrink-0 bg-border" />
+      <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+        {recentRows.map((row, index) => (
+          <span
+            key={`${row.ts}-${index}`}
+            className="flex min-w-0 shrink items-center gap-1.5 whitespace-nowrap text-muted-foreground"
+          >
+            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${TOAST_DOT_CLASS[row.kind]}`} />
+            <span className="truncate">
+              <span className={KIND_TEXT_CLASS[row.kind]}>{toastLabel(row)}</span>{' '}
+              {toastBody(row)}
+            </span>
+          </span>
+        ))}
+      </div>
+      <span className="shrink-0 text-muted-foreground">
+        {totalEvents} events · {counts.click} click · {counts.fetch} fetch
+      </span>
     </div>
   )
 }
@@ -156,53 +308,6 @@ function ToolbarIconButton({
     >
       {children}
     </button>
-  )
-}
-
-/** Rec toggle + live HUD (elapsed/counts) — grows into the full screen-1d HUD in Slice E. */
-function RecButton() {
-  const status = useSyncExternalStore(recStatusStore.subscribe, recStatusStore.getSnapshot)
-  const [lastError, setLastError] = useState<string | null>(null)
-  const isRecording = status.state === 'recording'
-
-  const handleToggle = (): void => {
-    setLastError(null)
-    if (isRecording) {
-      void window.entrance.recStop().then((result) => {
-        if (!result.ok) setLastError(result.error ?? '停止に失敗しました')
-      })
-    } else {
-      void window.entrance.recStart().then((result) => {
-        if (!result.ok) setLastError(result.error ?? '録画を開始できませんでした')
-      })
-    }
-  }
-
-  return (
-    <div className="app-no-drag flex items-center gap-2.5">
-      {lastError && <span className="max-w-[240px] truncate text-[11px] text-rec">{lastError}</span>}
-      {isRecording && (
-        <span className="flex items-center gap-2 font-mono text-[11.5px] text-muted-foreground">
-          <span className="text-foreground/90">{formatElapsed(status.elapsedMs)}</span>
-          <span>
-            fetch {status.counts.fetch} · console {status.counts.console} · error{' '}
-            {status.counts.error}
-          </span>
-        </span>
-      )}
-      <button
-        type="button"
-        onClick={handleToggle}
-        className={`flex h-8 items-center gap-2 rounded-lg border px-4 text-[13px] font-semibold transition-colors ${
-          isRecording
-            ? 'border-rec/60 bg-rec/10 text-rec hover:bg-rec/20'
-            : 'border-border bg-sunken hover:bg-white/[0.05]'
-        }`}
-      >
-        <span className={`h-2 w-2 rounded-full bg-rec ${isRecording ? 'animate-pulse' : ''}`} />
-        {isRecording ? '停止' : 'Rec'}
-      </button>
-    </div>
   )
 }
 
@@ -241,7 +346,7 @@ function OverlaySmokePopover() {
   )
 }
 
-/** P0 CDP live log — proves the attach smoke test end-to-end; becomes 1d's live feed. */
+/** P0 CDP live log — proves the attach smoke test end-to-end; hidden while recording. */
 function CdpEventLog() {
   const rows = useSyncExternalStore(cdpLogStore.subscribe, cdpLogStore.getSnapshot)
   const [isCollapsed, setIsCollapsed] = useState(false)
@@ -310,7 +415,45 @@ const KIND_TEXT_CLASS: Record<CdpEventSummary['kind'], string> = {
   console: 'text-foreground/70',
   error: 'text-rec',
   page: 'text-chart-5',
+  input: 'text-primary',
   other: 'text-muted-foreground',
+}
+
+const TOAST_DOT_CLASS: Record<CdpEventSummary['kind'], string> = {
+  network: 'bg-live',
+  console: 'bg-yellow-400',
+  error: 'bg-rec',
+  page: 'bg-chart-5',
+  input: 'bg-primary',
+  other: 'bg-muted-foreground',
+}
+
+/** Only events a person recording cares about reach the 1d toasts/status bar. */
+function isMeaningfulRecEvent(row: CdpEventSummary): boolean {
+  if (row.kind === 'input' || row.kind === 'error' || row.kind === 'page') return true
+  if (row.subtype === 'fetch-api') return true
+  return (
+    row.kind === 'console' &&
+    (row.summary.startsWith('console.warn') || row.summary.startsWith('console.error'))
+  )
+}
+
+/** Leading chip word per mock 1d ("click" / "fetch" / "warn" / "route" ...). */
+function toastLabel(row: CdpEventSummary): string {
+  if (row.kind === 'input') return 'click'
+  if (row.subtype === 'fetch-api') return 'fetch'
+  if (row.kind === 'page') return 'route'
+  if (row.kind === 'error') return 'error'
+  if (row.kind === 'console') return row.summary.startsWith('console.warn') ? 'warn' : 'error'
+  return row.kind
+}
+
+/** Body text after the chip word — the summary minus its own prefix. */
+function toastBody(row: CdpEventSummary): string {
+  if (row.kind === 'input') return row.summary.replace(/^click /, '')
+  if (row.kind === 'page') return row.summary.replace(/^navigated: /, '')
+  if (row.kind === 'console') return row.summary.replace(/^console\.(warn|error): /, '')
+  return row.summary
 }
 
 function CdpEventRow({ row }: { row: CdpEventSummary }) {

@@ -16,7 +16,9 @@ export function registerEntranceScheme(): void {
   protocol.registerSchemesAsPrivileged([
     {
       scheme: 'entrance',
-      privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
+      // corsEnabled marks the scheme CORS-capable — without it the renderer's
+      // cross-origin fetch() is rejected before the handler ever runs.
+      privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
     },
   ])
 }
@@ -35,6 +37,10 @@ export function registerEntranceProtocolHandler(): void {
           'x-content-type-options': 'nosniff',
           // Bundles are immutable once finalized — let replay re-reads hit the HTTP cache.
           'cache-control': 'max-age=3600',
+          // entrance:// is a standard scheme, so renderer fetches are cross-origin.
+          // Open CORS is safe: the handler exists only on the app session (the
+          // recorded webview's persist: partition never resolves this scheme).
+          'access-control-allow-origin': '*',
         },
       })
     } catch {

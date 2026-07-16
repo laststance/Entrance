@@ -9,3 +9,6 @@ export const REC_CLOCK_TICK_MS = 100
 
 /** Live-event toasts kept on screen during recording (mock 1d shows a short stack). */
 export const REC_TOAST_MAX_ROWS = 4
+
+/** Playhead store notifies React only at this granularity; Canvas reads peek() at full rAF rate. */
+export const PLAYHEAD_NOTIFY_GRANULARITY_MS = 10

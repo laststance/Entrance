@@ -19,6 +19,11 @@ import {
   CDP_NETWORK_TOTAL_BUFFER_BYTES,
   CONSOLE_ARG_PREVIEW_MAX_CHARS,
   NETWORK_BODY_MAX_BYTES,
+  PROFILER_SAMPLING_INTERVAL_US,
+  SCREENCAST_EVERY_NTH_FRAME,
+  SCREENCAST_JPEG_QUALITY,
+  SCREENCAST_MAX_HEIGHT_PX,
+  SCREENCAST_MAX_WIDTH_PX,
 } from '../constants'
 import { sessionSpoolDir } from '../paths'
 import { BlobStore } from './blob-store'
@@ -66,10 +71,21 @@ export interface TargetSessionCallbacks {
   onLaneEvent: (event: LaneEvent) => void
   /** Validated page-agent message (rrweb/input) — recorded only while a recording is active. */
   onAgentEvent: (message: AgentMessage) => void
+  /** Screencast JPEG frame (already ACKed) — recorded only while a recording is active. */
+  onScreencastFrame: (frame: ScreencastFrame) => void
   /** Top-frame navigation; the manager decides the navigated-away auto-stop (decision 25). */
   onTopFrameNavigated: (url: string) => void
   /** Target crashed/destroyed/detached — the manager auto-stops with target-crashed. */
   onTargetGone: () => void
+}
+
+/** One Page.screencastFrame, decoded for the manager. */
+export interface ScreencastFrame {
+  jpegBytes: Buffer
+  deviceWidth: number
+  deviceHeight: number
+  /** CDP capture timestamp (seconds, wall-ish) — display only; tMono rules ordering. */
+  cdpTimestamp?: number
 }
 
 export class TargetSession {
@@ -170,6 +186,46 @@ export class TargetSession {
       .catch(() => {
         /* target navigating or gone — the next agent-ready re-arms it */
       })
+  }
+
+  /** Start the filmstrip screencast (recording-only; frames flow to onScreencastFrame). */
+  async startScreencast(): Promise<void> {
+    await this.target.debugger.sendCommand('Page.startScreencast', {
+      format: 'jpeg',
+      quality: SCREENCAST_JPEG_QUALITY,
+      maxWidth: SCREENCAST_MAX_WIDTH_PX,
+      maxHeight: SCREENCAST_MAX_HEIGHT_PX,
+      everyNthFrame: SCREENCAST_EVERY_NTH_FRAME,
+    })
+  }
+
+  async stopScreencast(): Promise<void> {
+    await this.target.debugger.sendCommand('Page.stopScreencast')
+  }
+
+  /** Start the sampling profiler (always-on function-level highlight, decision 3). */
+  async startProfiler(): Promise<void> {
+    const targetDebugger = this.target.debugger
+    await targetDebugger.sendCommand('Profiler.enable')
+    await targetDebugger.sendCommand('Profiler.setSamplingInterval', {
+      interval: PROFILER_SAMPLING_INTERVAL_US,
+    })
+    await targetDebugger.sendCommand('Profiler.start')
+  }
+
+  /**
+   * Stop the sampling profiler.
+   * @returns the raw V8 profile, or null when the target died mid-recording
+   */
+  async stopProfiler(): Promise<unknown | null> {
+    try {
+      const result = (await this.target.debugger.sendCommand('Profiler.stop')) as {
+        profile?: unknown
+      }
+      return result.profile ?? null
+    } catch {
+      return null
+    }
   }
 
   /** Detach CDP, close spool writers, and delete the spool (recordings were copied out at finalize). */
@@ -335,6 +391,14 @@ export class TargetSession {
       )
     } else if (method === 'Runtime.bindingCalled') {
       this.onBindingCalled(params as { name?: string; payload?: string })
+    } else if (method === 'Page.screencastFrame') {
+      this.onScreencastFrame(
+        params as {
+          data?: string
+          sessionId?: number
+          metadata?: { deviceWidth?: number; deviceHeight?: number; timestamp?: number }
+        },
+      )
     } else if (method === 'Page.frameNavigated') {
       this.onFrameNavigated(params as { frame?: { url?: string; parentId?: string } })
     } else if (method === 'Page.loadEventFired') {
@@ -470,6 +534,26 @@ export class TargetSession {
       lineNumber: details?.lineNumber,
       columnNumber: details?.columnNumber,
       stack: toAnchorFrames(details?.stackTrace),
+    })
+  }
+
+  /** ACK immediately (Chrome withholds the next frame until ACKed), then hand the JPEG over. */
+  private onScreencastFrame(params: {
+    data?: string
+    sessionId?: number
+    metadata?: { deviceWidth?: number; deviceHeight?: number; timestamp?: number }
+  }): void {
+    if (typeof params.sessionId === 'number') {
+      void this.target.debugger
+        .sendCommand('Page.screencastFrameAck', { sessionId: params.sessionId })
+        .catch(() => {})
+    }
+    if (typeof params.data !== 'string') return
+    this.callbacks.onScreencastFrame({
+      jpegBytes: Buffer.from(params.data, 'base64'),
+      deviceWidth: params.metadata?.deviceWidth ?? 0,
+      deviceHeight: params.metadata?.deviceHeight ?? 0,
+      cdpTimestamp: params.metadata?.timestamp,
     })
   }
 

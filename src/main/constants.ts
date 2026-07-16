@@ -30,3 +30,17 @@ export const REC_STATUS_PUSH_INTERVAL_MS = 500
 
 /** Refuse to start a recording with less free disk than this (backpressure pre-check, decision 31). */
 export const RECORDING_MIN_FREE_DISK_BYTES = 500 * 1024 * 1024
+
+/** Screencast tuning (1c filmstrip lane): dev-tool quality, not video quality. */
+export const SCREENCAST_JPEG_QUALITY = 60
+export const SCREENCAST_MAX_WIDTH_PX = 1280
+export const SCREENCAST_MAX_HEIGHT_PX = 800
+export const SCREENCAST_EVERY_NTH_FRAME = 2
+
+/** Sampling profiler powers the always-on function-level highlight (decision 3). */
+export const PROFILER_SAMPLING_INTERVAL_US = 1000
+
+/** Per-map fetch budget when harvesting sourcemaps from the dev server at finalize. */
+export const SOURCEMAP_FETCH_TIMEOUT_MS = 3000
+/** Whole-harvest budget — a dead dev server must not hold the bundle open forever. */
+export const SOURCEMAP_HARVEST_TOTAL_TIMEOUT_MS = 20000

@@ -35,7 +35,8 @@ import { recordingDir, recordingsRootDir } from '../paths'
 import { defaultRecordingName } from '../utils/default-recording-name'
 import { directorySizeBytes } from '../utils/directory-size-bytes'
 import { LaneWriterSet } from './lane-writer'
-import { TargetSession } from './session'
+import { TargetSession, type ScreencastFrame } from './session'
+import { harvestSourcemaps } from './sourcemap-harvest'
 
 /**
  * Owns the attached TargetSession and the at-most-one active recording
@@ -57,6 +58,8 @@ interface ActiveRecording {
   counts: { click: number; fetch: number; console: number; error: number }
   /** Spool+blob bytes at t0 — the live HUD shows bytes written SINCE Rec. */
   baselineBytes: number
+  /** sequencer.nowMono() right before Profiler.start — calibrates profile time to tMono. */
+  profilerStartMono: number | null
 }
 
 export class RecordingManager {
@@ -92,6 +95,7 @@ export class RecordingManager {
       callbacks: {
         onLaneEvent: (event) => this.tallyLaneEvent(event),
         onAgentEvent: (message) => this.handleAgentEvent(message),
+        onScreencastFrame: (frame) => this.handleScreencastFrame(frame),
         onTopFrameNavigated: (url) => this.handleTopFrameNavigation(url),
         onTargetGone: () => void this.handleTargetGone(),
       },
@@ -139,6 +143,7 @@ export class RecordingManager {
       recLanes: new LaneWriterSet(dir),
       counts: { click: 0, fetch: 0, console: 0, error: 0 },
       baselineBytes: this.session.spoolLanes.bytesWritten + this.session.blobs.bytesWritten,
+      profilerStartMono: null,
     }
     // The t0 marker shares the session's canonical clock (decisions 13/27).
     active.recLanes.append(this.session.sequencer.stamp('lifecycle', { kind: 'rec-start', recordingId }))
@@ -159,6 +164,18 @@ export class RecordingManager {
     this.active = active
     // Arm the in-page rrweb recorder — its FullSnapshot becomes the t0 baseline.
     this.session.evaluateInPage(AGENT_REC_START_EXPRESSION)
+    // Screencast + profiler are best-effort: their loss degrades the filmstrip /
+    // highlight, never the recording itself.
+    const session = this.session
+    void session.startScreencast().catch(() => {})
+    void session
+      .startProfiler()
+      .then(() => {
+        if (this.active?.recordingId === recordingId) {
+          this.active.profilerStartMono = session.sequencer.nowMono()
+        }
+      })
+      .catch(() => {})
     this.statusTimer = setInterval(() => this.pushStatus(), REC_STATUS_PUSH_INTERVAL_MS)
     this.pushStatus()
     return { ok: true, recordingId }
@@ -182,6 +199,21 @@ export class RecordingManager {
     }
 
     session.evaluateInPage(AGENT_REC_STOP_EXPRESSION)
+    void session.stopScreencast().catch(() => {})
+    // Grab the CPU profile before closing lanes — its samples power the
+    // function-level highlight (decision 3); calibration pair maps V8 time → tMono.
+    const profile = await session.stopProfiler()
+    const profilerStopMono = session.sequencer.nowMono()
+    if (profile !== null) {
+      writeFileSync(
+        join(active.dir, 'profile.cpuprofile.json'),
+        JSON.stringify({
+          profilerStartMono: active.profilerStartMono,
+          profilerStopMono,
+          profile,
+        }),
+      )
+    }
     const tEndMono = session.sequencer.nowMono()
     active.recLanes.append(session.sequencer.stamp('lifecycle', { kind: 'rec-stop', reason }))
     active.recLanes.close()
@@ -218,7 +250,24 @@ export class RecordingManager {
       window.webContents.send(PUSH.recAutoStopped, { reason, recordingId: active.recordingId })
     }
     this.pushStatus()
+    // Background harvest (dev server is alive right now); index.json marks completion.
+    void harvestSourcemaps(active.dir).catch(() => {})
     return { ok: true, recordingId: active.recordingId, name: active.name }
+  }
+
+  /** Screencast lane: JPEG → blob store, lane row references the hash (recording-only). */
+  private handleScreencastFrame(frame: ScreencastFrame): void {
+    const session = this.session
+    const active = this.active
+    if (!session || !active) return
+    const bodyHash = session.blobs.put(frame.jpegBytes)
+    const event = session.sequencer.stamp('screencast', {
+      bodyHash,
+      deviceWidth: frame.deviceWidth,
+      deviceHeight: frame.deviceHeight,
+      cdpTimestamp: frame.cdpTimestamp,
+    })
+    active.recLanes.append(event)
   }
 
   /** Agent lanes (rrweb/input) are recording-only (decision 27) — dropped while idle. */

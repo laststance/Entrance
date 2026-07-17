@@ -3,7 +3,7 @@
 - **録画ID**: `01KXR45HTQJKN2YBYV72G3FTTK`
 - **録画名**: 録画 2026-07-17 22:27  （http://localhost:4991/）
 - **生成方式**: Mode B 決定論的再実行 + V8 precise coverage、録画グラウンドトゥルース照合 (`modeB-precise-coverage`)
-- **生成日時**: 2026-07-17T20:34:02.963Z
+- **生成日時**: 2026-07-17T20:46:09.927Z
 - **録画長**: 00:59.17 (59170ms) / t0Mono=14562.249042
 - **統計**: 実行app行 **6125** 行 / **142** ファイル / スクリプト解決 139/201
 
@@ -31,6 +31,8 @@
 - 再実行時 divergence 1 件（正直に surface、決して silently wrong にしない）:
   - [network] 録画にないリクエスト: POST http://localhost:4991/api/orpc/category/list (XHR)
 - 照合オラクル健全性: cpuprofile app-chunk ノード解決 63/76（未解決は生成グルー）、スタックフレーム走査 50（うち corelive 0＝録画コンソールは全てフレームワーク起点）。
+- **ソースの真実源はバンドル（frozen content）**: 全行のソーステキスト・行数境界は録画バンドル内の frozen content（`coverage-timeline.json` の `sources[].content` ＋ sourcemap の `sourcesContent`）で解決し、稼働中の corelive ディスクは参照しない。142 の coverage ソースは frozen と現ディスクで行数が完全一致（142/142）と実測済み。`data-insp-path` は録画器が注入したスタンプで、行番号には影響しない（表示時は可読性のため除去）。
+- **screencast(フィルムストリップ)について**: 録画のスクリーンキャストは rrweb が捉えたのと同一 DOM のラスタ画像であり、rrweb/cpuprofile/Mode B が既に保持していない corelive/src の行を新たに帰属させることはできない（画素にファイル名・行番号は無い）。したがって反証テストのオラクルには含めない。
 
 ## 1. 録画直接証拠テーブル（C/V/S — 録画そのものが証明する行）
 

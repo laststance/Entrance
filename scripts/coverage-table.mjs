@@ -16,6 +16,7 @@
  */
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { frozenSourceMap, stripInspStamp } from './frozen-source.mjs'
 
 const [recordingDir, outPath] = process.argv.slice(2)
 if (!recordingDir || !outPath) {
@@ -34,6 +35,8 @@ const evidenceDoc = JSON.parse(readFileSync(evidencePath, 'utf8'))
 const backfill = existsSync(join(recordingDir, 'backfill.json'))
   ? JSON.parse(readFileSync(join(recordingDir, 'backfill.json'), 'utf8'))
   : {}
+// Source text is anchored to the FROZEN bundle content (never live corelive disk).
+const frozen = frozenSourceMap(recordingDir)
 
 // Recording monotonic origin (Rec-press): REC clock = tMono - t0Mono. Mode B
 // bucket times are already REC-clock; oracle tMono are absolute — convert here.
@@ -155,6 +158,10 @@ if (timeline.divergences.length > 0) {
 p('- 照合オラクル健全性: cpuprofile app-chunk ノード解決 ' +
   `${evidenceDoc.resolutionHealth.cpuprofile.resolvedCorelive}/${evidenceDoc.resolutionHealth.cpuprofile.appNodes}（未解決は生成グルー）、` +
   `スタックフレーム走査 ${evidenceDoc.resolutionHealth.stacks.framesScanned}（うち corelive ${evidenceDoc.resolutionHealth.stacks.resolvedCorelive}＝録画コンソールは全てフレームワーク起点）。`)
+// Source text / line-bounds are bundle-anchored, not read from the live (actively-edited) corelive repo.
+p('- **ソースの真実源はバンドル（frozen content）**: 全行のソーステキスト・行数境界は録画バンドル内の frozen content（`coverage-timeline.json` の `sources[].content` ＋ sourcemap の `sourcesContent`）で解決し、稼働中の corelive ディスクは参照しない。142 の coverage ソースは frozen と現ディスクで行数が完全一致（142/142）と実測済み。`data-insp-path` は録画器が注入したスタンプで、行番号には影響しない（表示時は可読性のため除去）。')
+// Preempt the screencast/filmstrip objection: it carries no line attribution the other oracles lack.
+p('- **screencast(フィルムストリップ)について**: 録画のスクリーンキャストは rrweb が捉えたのと同一 DOM のラスタ画像であり、rrweb/cpuprofile/Mode B が既に保持していない corelive/src の行を新たに帰属させることはできない（画素にファイル名・行番号は無い）。したがって反証テストのオラクルには含めない。')
 p('')
 
 // ── §1 Recording-direct evidence table (the falsification-critical subset) ──
@@ -229,12 +236,10 @@ for (const display of evidenceDoc.serverRenderedFiles) {
   for (const line of Object.keys(perLine).map(Number).sort((a, b) => a - b)) {
     const e = perLine[line]
     const ms = directRecMs(display, line)
-    // Pull the actual source text for the stamped line for auditability.
-    let text = ''
-    try {
-      const abs = join('/Users/ryotamurakami/laststance/corelive', display)
-      text = readFileSync(abs, 'utf8').split('\n')[line - 1]?.trim().slice(0, 60) ?? ''
-    } catch {}
+    // Frozen record-time source text (bundle-anchored); strip the recorder's
+    // injected data-insp-path stamp for readability. Line numbers are unaffected.
+    const frozenLines = frozen.get(display)?.lines ?? []
+    const text = stripInspStamp(frozenLines[line - 1] ?? '').trim().slice(0, 60)
     p(`| \`${display}\` | ${line} | ${e.sources.join('')} | ${ms == null ? '—' : clock(ms)} | \`${text.replace(/\|/g, '\\|')}\` |`)
   }
   if (coveredDisplays.has(display)) p(`| \`${display}\` | (note) | | | client 部分は §3 に存在 |`)

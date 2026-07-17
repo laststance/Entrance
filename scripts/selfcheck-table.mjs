@@ -5,12 +5,14 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { AnyMap, eachMapping } from '@jridgewell/trace-mapping'
+import { frozenSourceMap } from './frozen-source.mjs'
 
 const dir = process.argv[2]
-const CORELIVE = '/Users/ryotamurakami/laststance/corelive'
 const timeline = JSON.parse(readFileSync(join(dir, 'coverage', 'coverage-timeline.json'), 'utf8'))
 const evidence = JSON.parse(readFileSync(join(dir, 'coverage', 'recording-evidence.json'), 'utf8'))
 const idx = JSON.parse(readFileSync(join(dir, 'sourcemaps', 'index.json'), 'utf8'))
+// Line-bounds resolve against the FROZEN bundle content, never live corelive disk.
+const frozen = frozenSourceMap(dir)
 
 // Union of every display in coverage + evidence = the table's file set.
 const tableFiles = new Set(timeline.sources.map((s) => s.display))
@@ -35,20 +37,16 @@ console.log('app-chunk source files total:', allMapSources.size, '| in table:', 
 if (loadedNotInTable.length === 0) console.log('  ✓ none — every app-chunk-bundled corelive source is in the table')
 else loadedNotInTable.forEach((d) => console.log('  ? bundled-but-absent:', d))
 
-// (2) Line-bound sanity for every table line.
-console.log('=== (2) table lines exceeding source file length ===')
+// (2) Line-bound sanity for every table line — against FROZEN bundle content.
+console.log('=== (2) table lines exceeding source file length (frozen bundle content) ===')
 let checked = 0, phantom = 0
-const fileLen = new Map()
 const lenOf = (display) => {
-  if (fileLen.has(display)) return fileLen.get(display)
-  const abs = join(CORELIVE, display)
-  const n = existsSync(abs) ? readFileSync(abs, 'utf8').split('\n').length : -1
-  fileLen.set(display, n)
-  return n
+  const f = frozen.get(display)
+  return f ? f.lines.length : -1
 }
 for (const src of timeline.sources) {
   const n = lenOf(src.display)
-  if (n < 0) { console.log('  !! source file missing on disk:', src.display); continue }
+  if (n < 0) { console.log('  !! source has no frozen bundle content:', src.display); continue }
   for (const line of src.allLines) { checked++; if (line > n) { phantom++; console.log(`  !! ${src.display}:${line} exceeds file length ${n}`) } }
 }
 for (const [display, perLine] of Object.entries(evidence.evidence)) {

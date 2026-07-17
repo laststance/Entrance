@@ -39,6 +39,9 @@ export interface RedebugBundle {
   blobsDirPath: string
   /** Recorded viewport (snapshot.json) — the hidden window matches it for layout fidelity. */
   viewport: { width: number; height: number } | null
+  /** rrweb Input-event field lengths (values are masked to '*'s at record time)
+   * in tMono order — paste replay sizes its stand-in text from these. */
+  inputValueEvents: Array<{ tMono: number; length: number }>
 }
 
 // Shape of session.cookies.get() rows as the recorder stored them. Rows that
@@ -162,6 +165,18 @@ export function readRedebugBundle(recordingDirPath: string): RedebugBundle {
     /* pre-P1 bundle without snapshot — fallback viewport constants apply */
   }
 
+  // rrweb Input events (IncrementalSnapshot source 5) record each field's
+  // post-edit value. Values are masked, but their lengths are the only trace
+  // of how much text a recorded Cmd+V paste inserted — key replay needs them.
+  const rrwebInputEventSchema = z.looseObject({
+    type: z.literal(3),
+    data: z.looseObject({ source: z.literal(5), text: z.string().catch('') }),
+  })
+  const inputValueEvents = readLane('rrweb').flatMap((event) => {
+    const parsed = rrwebInputEventSchema.safeParse(event.payload)
+    return parsed.success ? [{ tMono: event.tMono, length: parsed.data.data.text.length }] : []
+  })
+
   return {
     manifest,
     networkLane: readLane('network'),
@@ -170,5 +185,6 @@ export function readRedebugBundle(recordingDirPath: string): RedebugBundle {
     enclave,
     blobsDirPath: join(recordingDirPath, 'blobs'),
     viewport,
+    inputValueEvents,
   }
 }

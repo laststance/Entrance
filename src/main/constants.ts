@@ -80,3 +80,26 @@ export const REDEBUG_WINDOW_HEIGHT_PX = 720
 export const REDEBUG_HARVEST_INTERIM_TAKE_MS = 500
 /** Coverage harvest: max settle after the final input so trailing fetches/effects run. */
 export const REDEBUG_HARVEST_TAIL_MS = 5000
+
+/** Editing keys only act when Chromium sees their virtual key code — a CDP
+ * keyDown without one runs no editing command (Backspace deletes nothing,
+ * Enter submits nothing). Key = DOM `key` value of the recorded event. */
+export const REDEBUG_KEY_VIRTUAL_CODES: Record<string, number> = {
+  Backspace: 8,
+  Tab: 9,
+  Enter: 13,
+  Shift: 16,
+  Control: 17,
+  Alt: 18,
+  Escape: 27,
+  ArrowLeft: 37,
+  ArrowUp: 38,
+  ArrowRight: 39,
+  ArrowDown: 40,
+  Delete: 46,
+  Meta: 91,
+}
+/** Paste replay: how far past the Cmd+V chord to search rrweb for the input event holding the pasted field's new length. */
+export const REDEBUG_PASTE_LOOKAHEAD_MS = 2000
+/** Paste replay: stand-in text length when no rrweb input event confirms one (pasted content is masked, never recorded). */
+export const REDEBUG_PASTE_FALLBACK_CHARS = 12

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -21,10 +21,13 @@ import {
   REDEBUG_HYDRATION_TIMEOUT_MS,
   REDEBUG_INPUT_MAX_WAIT_MS,
   REDEBUG_INPUT_SETTLE_MS,
+  REDEBUG_KEY_VIRTUAL_CODES,
   REDEBUG_LOAD_TIMEOUT_MS,
   REDEBUG_MAX_CALL_FRAMES,
   REDEBUG_MAX_DIVERGENCES,
   REDEBUG_MAX_SCOPE_VARIABLES,
+  REDEBUG_PASTE_FALLBACK_CHARS,
+  REDEBUG_PASTE_LOOKAHEAD_MS,
   REDEBUG_PAUSE_FALLBACK_MS,
   REDEBUG_RANDOM_SEED,
   REDEBUG_WINDOW_HEIGHT_PX,
@@ -638,6 +641,7 @@ export class RedebugSession {
         return send(method, sendParams)
       }
 
+      if (harvestContext) await this.captureInputDiag(send, index, event.seq, input)
       try {
         if (input.kind === 'click') {
           let clickX = input.x ?? 0
@@ -678,19 +682,49 @@ export class RedebugSession {
             ? (this.bundle.enclave.keystrokes[this.keystrokeCursor++]?.key ?? '')
             : (input.key ?? '')
           if (!realKey) continue
-          const modifierBits =
-            (input.modifiers?.alt ? 1 : 0) |
-            (input.modifiers?.ctrl ? 2 : 0) |
-            (input.modifiers?.meta ? 4 : 0) |
-            (input.modifiers?.shift ? 8 : 0)
-          const keyBase = { code: input.code, key: realKey, modifiers: modifierBits }
-          await armPause()
-          await post('Input.dispatchKeyEvent', {
-            ...keyBase,
-            type: realKey.length === 1 ? 'keyDown' : 'rawKeyDown',
-            text: realKey.length === 1 ? realKey : realKey === 'Enter' ? '\r' : undefined,
-          })
-          await post('Input.dispatchKeyEvent', { ...keyBase, type: 'keyUp' })
+          const isPasteChord =
+            realKey === 'v' && Boolean(input.modifiers?.meta || input.modifiers?.ctrl)
+          if (isPasteChord) {
+            // A synthesized Cmd/Ctrl+V runs no editing command in Chromium, so
+            // the paste replays by effect: insert stand-in text sized by the
+            // rrweb input event that recorded the result (the pasted content
+            // itself is masked — never recorded).
+            await armPause()
+            await this.focusVisibleEmptyFieldIfBlurred(post)
+            await post('Input.insertText', {
+              text: 'x'.repeat(this.pastedLengthNear(event.tMono)),
+            })
+          } else {
+            const modifierBits =
+              (input.modifiers?.alt ? 1 : 0) |
+              (input.modifiers?.ctrl ? 2 : 0) |
+              (input.modifiers?.meta ? 4 : 0) |
+              (input.modifiers?.shift ? 8 : 0)
+            const virtualKeyCode = REDEBUG_KEY_VIRTUAL_CODES[realKey]
+            const keyBase = {
+              code: input.code,
+              key: realKey,
+              modifiers: modifierBits,
+              ...(virtualKeyCode !== undefined
+                ? { windowsVirtualKeyCode: virtualKeyCode, nativeVirtualKeyCode: virtualKeyCode }
+                : {}),
+            }
+            const isBareModifier =
+              realKey === 'Meta' || realKey === 'Shift' || realKey === 'Control' || realKey === 'Alt'
+            // keyDown (not raw) lets Chromium run the editing command behind
+            // Backspace/Enter/arrows; bare modifiers stay rawKeyDown.
+            const downType =
+              realKey.length === 1 || (virtualKeyCode !== undefined && !isBareModifier)
+                ? 'keyDown'
+                : 'rawKeyDown'
+            await armPause()
+            await post('Input.dispatchKeyEvent', {
+              ...keyBase,
+              type: downType,
+              text: realKey.length === 1 ? realKey : realKey === 'Enter' ? '\r' : undefined,
+            })
+            await post('Input.dispatchKeyEvent', { ...keyBase, type: 'keyUp' })
+          }
         } else if (input.kind === 'scroll') {
           // Scroll restore is positional, not gestural — evaluate is sufficient.
           await armPause()
@@ -708,6 +742,53 @@ export class RedebugSession {
       }
     }
     return didArmPause
+  }
+
+  /**
+   * Harvest ground-truth diagnostics: what the page shows and what each input
+   * is about to hit — the "did the click land on the form?" evidence.
+   */
+  private async captureInputDiag(
+    send: CdpSend,
+    index: number,
+    seq: number,
+    input: { kind: string; x?: number; y?: number; selector?: string },
+  ): Promise<void> {
+    try {
+      const probe =
+        input.kind === 'click'
+          ? `(()=>{const el=document.elementFromPoint(${Number(input.x ?? 0)},${Number(input.y ?? 0)});return el?el.outerHTML.slice(0,200):'(null)'})()`
+          : `(()=>{const el=document.activeElement;return el?el.tagName+'#'+(el.id||'')+' '+String(el.className||'').slice(0,80):'(none)'})()`
+      const evaluated = (await send('Runtime.evaluate', {
+        expression: probe,
+        returnByValue: true,
+        silent: true,
+      })) as { result?: { value?: unknown } }
+      this.harvestDiag.push({
+        atMs: Date.now() - this.harvestStartedWall,
+        kind: `input-target:${input.kind}`,
+        seq,
+        selector: (input.selector ?? '').slice(0, 120),
+        text: String(evaluated.result?.value ?? '').slice(0, 300),
+      })
+      // A few full screenshots across the run — visual ground truth.
+      if (index < 3 || index % 4 === 0) {
+        const shot = (await send('Page.captureScreenshot', {
+          format: 'jpeg',
+          quality: 55,
+        })) as { data?: string }
+        if (shot.data) {
+          const shotsDir = join(this.recordingDirPath, 'coverage', 'shots')
+          mkdirSync(shotsDir, { recursive: true })
+          writeFileSync(
+            join(shotsDir, `input-${String(index).padStart(2, '0')}-seq${seq}.jpg`),
+            Buffer.from(shot.data, 'base64'),
+          )
+        }
+      }
+    } catch {
+      /* diagnostics only — never fail the harvest */
+    }
   }
 
   /** Harvest run: replay every input with coverage takes, settle, write the artifact. */
@@ -812,7 +893,65 @@ export class RedebugSession {
     }
   }
 
+  /**
+   * Length of the text a recorded paste inserted, read from the first rrweb
+   * input event following the chord (values are masked, lengths survive).
+   * @param pasteTMono - recorded tMono of the Cmd+V key event
+   * @returns
+   * - matched rrweb event: its field-value length
+   * - none within the lookahead window: REDEBUG_PASTE_FALLBACK_CHARS
+   * @example this.pastedLengthNear(22930) // => 13
+   */
+  private pastedLengthNear(pasteTMono: number): number {
+    for (const valueEvent of this.bundle.inputValueEvents) {
+      if (valueEvent.tMono < pasteTMono) continue
+      if (valueEvent.tMono > pasteTMono + REDEBUG_PASTE_LOOKAHEAD_MS) break
+      if (valueEvent.length > 0) return valueEvent.length
+    }
+    return REDEBUG_PASTE_FALLBACK_CHARS
+  }
+
+  /**
+   * Refocuses the first visible empty field before Input.insertText when focus
+   * was lost — a step-transition re-render can drop autofocus in replay, and
+   * insertText lands wherever focus sits.
+   * @param post - the dispatch loop's CDP sender
+   * @example await this.focusVisibleEmptyFieldIfBlurred(post)
+   */
+  private async focusVisibleEmptyFieldIfBlurred(
+    post: (method: string, sendParams?: unknown) => Promise<unknown>,
+  ): Promise<void> {
+    await post('Runtime.evaluate', {
+      expression: `(() => {
+        const active = document.activeElement
+        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return
+        for (const field of document.querySelectorAll('input, textarea')) {
+          const rect = field.getBoundingClientRect()
+          if (rect.width > 0 && rect.height > 0 && !field.disabled && field.type !== 'hidden' && !field.value) {
+            field.focus()
+            return
+          }
+        }
+      })()`,
+      silent: true,
+    })
+  }
+
   private async resolveSelectorCenter(selector: string): Promise<{ x: number; y: number } | null> {
+    // Recorded paths pin full ancestor chains that replay-only DOM drift breaks
+    // (dev-overlay siblings shift nth-of-type ordinals, useId prefixes change) —
+    // retry from the nearest `form >` anchor before surrendering to coordinates.
+    const candidateSelectors = [selector]
+    const formAnchorIndex = selector.lastIndexOf('form > ')
+    if (formAnchorIndex > 0) candidateSelectors.push(selector.slice(formAnchorIndex))
+    for (const candidate of candidateSelectors) {
+      const center = await this.querySelectorCenter(candidate)
+      if (center) return center
+    }
+    return null
+  }
+
+  private async querySelectorCenter(selector: string): Promise<{ x: number; y: number } | null> {
     const window = this.window
     if (!window || window.isDestroyed()) return null
     try {

@@ -184,13 +184,38 @@ export class RedebugSession {
     return this.phase === 'paused'
   }
 
+  /**
+   * The page the re-execution must boot FROM: the first answerable Document in
+   * the recorded lane. targetUrl is only what the user typed into the address
+   * bar — the page actually open at Rec (e.g. /login mid-auth) may differ, and
+   * booting the wrong route breaks every recorded input's target.
+   */
+  private resolveBootUrl(): string | null {
+    for (const event of this.bundle.networkLane) {
+      const payload = event.payload as {
+        phase?: string
+        resourceType?: string
+        method?: string
+        url?: string
+      }
+      if (payload.phase !== 'request' || payload.resourceType !== 'Document') continue
+      if (payload.url && this.matcher.has(payload.method ?? 'GET', payload.url)) {
+        return payload.url
+      }
+    }
+    return this.matcher.has('GET', this.bundle.manifest.targetUrl)
+      ? this.bundle.manifest.targetUrl
+      : null
+  }
+
   /** Boots the hidden window, replays inputs, and lands in a paused state. */
   async start(): Promise<void> {
     const { manifest } = this.bundle
     // Honest gate (decision 27): without the bootstrap Document in the bundle
     // there is nothing to re-execute — typical for "Rec pressed on an
     // already-open page before Entrance attached".
-    if (!this.matcher.has('GET', manifest.targetUrl)) {
+    const bootUrl = this.resolveBootUrl()
+    if (!bootUrl) {
       this.diverge(
         'bootstrap',
         'この録画には起動ドキュメントが含まれていません(ページを開いた後に録画を開始したため)。モードAで再生できます。',
@@ -306,7 +331,7 @@ export class RedebugSession {
         resolve(true)
       })
     })
-    void window.webContents.loadURL(manifest.targetUrl).catch(() => {})
+    void window.webContents.loadURL(bootUrl).catch(() => {})
     const didLoad = await loaded
     if (this.isDisposed) return
     if (!didLoad && !this.isPausedNow()) {

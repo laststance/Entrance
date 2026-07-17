@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { BrowserWindow } from 'electron'
@@ -20,6 +21,7 @@ import {
   REDEBUG_INPUT_SETTLE_MS,
   REDEBUG_LOAD_TIMEOUT_MS,
   REDEBUG_MAX_CALL_FRAMES,
+  REDEBUG_MAX_DIVERGENCES,
   REDEBUG_MAX_SCOPE_VARIABLES,
   REDEBUG_PAUSE_FALLBACK_MS,
   REDEBUG_RANDOM_SEED,
@@ -76,6 +78,14 @@ const inputPayloadSchema = z.looseObject({
 })
 const errorPayloadSchema = z.looseObject({ message: z.string().optional() })
 
+// The bundle is hostile input (spec conventions): a bodyHash naming anything
+// but a flat blob id would let join() escape blobs/ and leak local files into
+// the re-executed page. Blob files are written as hex content hashes.
+const SAFE_BLOB_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/
+// RFC 7230 header token — and values must not smuggle CR/LF header splices.
+const SAFE_HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
+const HEADER_CRLF_PATTERN = /[\r\n]/
+
 export class RedebugSession {
   private window: BrowserWindow | null = null
   private readonly bundle: RedebugBundle
@@ -122,9 +132,22 @@ export class RedebugSession {
     this.phase = 'failed'
     this.lastError = message
     this.pushStatus()
+    // A failed session is terminal — reclaim the hidden window and its
+    // attached debugger now instead of leaking them until the next start/stop.
+    this.dispose()
   }
 
   private diverge(oracle: RedebugDivergence['oracle'], message: string): void {
+    // A fully unmatched page can miss on EVERY request — dedupe + cap keeps
+    // the array (and each status push, which copies it) bounded.
+    if (this.divergences.some((d) => d.oracle === oracle && d.message === message)) return
+    if (this.divergences.length >= REDEBUG_MAX_DIVERGENCES) {
+      if (this.divergences.length === REDEBUG_MAX_DIVERGENCES) {
+        this.divergences.push({ oracle, message: '相違が多すぎるため以降の記録は省略しました' })
+        this.pushStatus()
+      }
+      return
+    }
     this.divergences.push({ oracle, message })
     this.pushStatus()
   }
@@ -179,9 +202,21 @@ export class RedebugSession {
     )
 
     for (const cookie of this.bundle.enclave.cookies) {
-      // Cookie shapes come straight from Electron's cookies.get at record time.
+      // cookies.get() rows carry no url but cookies.set() requires one —
+      // reconstruct it from the cookie's own scope fields.
+      const cookieHost = (cookie.domain ?? new URL(manifest.targetUrl).hostname).replace(/^\./, '')
       try {
-        await window.webContents.session.cookies.set(cookie as Electron.CookiesSetDetails)
+        await window.webContents.session.cookies.set({
+          url: `http${cookie.secure ? 's' : ''}://${cookieHost}${cookie.path ?? '/'}`,
+          name: cookie.name,
+          value: cookie.value,
+          domain: cookie.domain,
+          path: cookie.path,
+          secure: cookie.secure,
+          httpOnly: cookie.httpOnly,
+          expirationDate: cookie.expirationDate,
+          sameSite: cookie.sameSite,
+        })
       } catch {
         /* expired/malformed cookie — page may diverge; oracles will tell */
       }
@@ -245,6 +280,12 @@ export class RedebugSession {
     if (!didLoad && !this.isPausedNow()) {
       this.diverge('bootstrap', '録画からの起動が時間内に完了しませんでした')
     }
+
+    // A breakpoint that fired during boot (e.g. an anchor in first-render
+    // code) already produced the honest paused state — never downgrade it,
+    // and never dispatch inputs into a paused renderer (the awaited
+    // Input.dispatch* would simply never ack).
+    if (this.isPausedNow()) return
 
     // Trusted input re-dispatch up to the requested event boundary.
     this.phase = 'replaying-inputs'
@@ -357,12 +398,17 @@ export class RedebugSession {
 
     let bodyBase64 = ''
     if (recorded.bodyHash) {
-      try {
-        bodyBase64 = readFileSync(join(this.bundle.blobsDirPath, recorded.bodyHash)).toString(
-          'base64',
-        )
-      } catch {
-        this.diverge('network', `録画本文が見つかりません: ${method} ${url.slice(0, 120)}`)
+      if (!SAFE_BLOB_ID_PATTERN.test(recorded.bodyHash)) {
+        this.diverge('network', `不正な本文IDを拒否しました: ${method} ${url.slice(0, 120)}`)
+      } else {
+        try {
+          // async: a large body must not block the main process event loop.
+          bodyBase64 = (await readFile(join(this.bundle.blobsDirPath, recorded.bodyHash))).toString(
+            'base64',
+          )
+        } catch {
+          this.diverge('network', `録画本文が見つかりません: ${method} ${url.slice(0, 120)}`)
+        }
       }
     } else if (recorded.bodyDropped) {
       this.diverge('network', `録画時に本文が保存されませんでした: ${method} ${url.slice(0, 120)}`)
@@ -370,10 +416,13 @@ export class RedebugSession {
 
     const responseHeaders = Object.entries(recorded.headers)
       .filter(([name]) => !['content-encoding', 'content-length', 'transfer-encoding'].includes(name.toLowerCase()))
+      // Recorded header shapes are hostile — a non-token name or CR/LF in a
+      // value would splice arbitrary headers into the fulfilled response.
+      .filter(([name, value]) => SAFE_HEADER_NAME_PATTERN.test(name) && !HEADER_CRLF_PATTERN.test(value))
       .map(([name, value]) => ({ name, value }))
     // Real Set-Cookie values ride along from the enclave (decision 32b).
     for (const value of this.bundle.enclave.setCookieValuesByRequestId.get(recorded.requestId) ?? []) {
-      responseHeaders.push({ name: 'Set-Cookie', value })
+      if (!HEADER_CRLF_PATTERN.test(value)) responseHeaders.push({ name: 'Set-Cookie', value })
     }
 
     await send('Fetch.fulfillRequest', {
@@ -454,6 +503,9 @@ export class RedebugSession {
         if (input.kind === 'click') {
           let clickX = input.x ?? 0
           let clickY = input.y ?? 0
+          // An explicit flag, not a (0,0) sentinel — a legitimate corner
+          // click must not read as "target missing".
+          let hasClickPoint = input.x !== undefined || input.y !== undefined
           // Selector center wins over recorded coordinates: replay layout can
           // shift (e.g. record-time cache-served fonts are absent from the
           // bundle), and a coordinate click then silently lands on the wrong
@@ -463,9 +515,10 @@ export class RedebugSession {
             if (resolved) {
               clickX = resolved.x
               clickY = resolved.y
+              hasClickPoint = true
             }
           }
-          if (clickX === 0 && clickY === 0) {
+          if (!hasClickPoint) {
             this.diverge(
               'network',
               `クリック対象が見つかりません: ${(input.selector ?? '').slice(0, 80)}`,

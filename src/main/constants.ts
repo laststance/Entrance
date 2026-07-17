@@ -68,6 +68,8 @@ export const REDEBUG_INPUT_MAX_WAIT_MS = 2000
 export const REDEBUG_PAUSE_FALLBACK_MS = 1500
 export const REDEBUG_MAX_CALL_FRAMES = 20
 export const REDEBUG_MAX_SCOPE_VARIABLES = 40
+/** Divergence list cap — an unmatched page misses on every request; keep pushes bounded. */
+export const REDEBUG_MAX_DIVERGENCES = 50
 /** Fixed Math.random seed — same value every re-execution, by design. */
 export const REDEBUG_RANDOM_SEED = 0x12345678
 /** Fallback viewport when the bundle has no snapshot (pre-P1 recordings). */

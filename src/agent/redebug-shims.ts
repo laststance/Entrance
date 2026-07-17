@@ -22,16 +22,22 @@ interface RedebugShimConfig {
   globalScope.__entranceRedebugShimmed = true
 
   // Storage seed (decision 28: ephemeral partition starts from the snapshot).
-  try {
-    for (const [key, value] of Object.entries(config.localStorage)) localStorage.setItem(key, value)
-  } catch {
-    /* opaque origin — nothing to seed */
-  }
-  try {
-    for (const [key, value] of Object.entries(config.sessionStorage))
-      sessionStorage.setItem(key, value)
-  } catch {
-    /* ignore */
+  // Top frame only: this shim runs once per frame, and seeding the TARGET's
+  // snapshot into an iframe would write it into that frame's own (possibly
+  // cross-origin) storage. Clock/random/socket shims stay active in all frames.
+  if (window === window.top) {
+    try {
+      for (const [key, value] of Object.entries(config.localStorage))
+        localStorage.setItem(key, value)
+    } catch {
+      /* opaque origin — nothing to seed */
+    }
+    try {
+      for (const [key, value] of Object.entries(config.sessionStorage))
+        sessionStorage.setItem(key, value)
+    } catch {
+      /* ignore */
+    }
   }
 
   // Wall clock pin: "now" restarts at the recording's t0 and advances with real time.

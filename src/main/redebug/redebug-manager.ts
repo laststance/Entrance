@@ -1,7 +1,7 @@
 import type { BrowserWindow } from 'electron'
 
 import { PUSH } from '@shared/ipc'
-import type { RedebugStepRequest, StartRedebugRequest } from '@shared/redebug'
+import type { RedebugStatus, RedebugStepRequest, StartRedebugRequest } from '@shared/redebug'
 
 import { recordingDir } from '../paths'
 import { RedebugSession } from './redebug-session'
@@ -24,7 +24,22 @@ export class RedebugManager {
         if (window && !window.isDestroyed()) window.webContents.send(PUSH.redebugStatus, status)
       })
       this.session = session
-      void session.start()
+      // start() reports its own failures via status pushes; an UNEXPECTED
+      // throw (e.g. missing shim bundle on disk) must not strand the renderer
+      // on 起動中 with a floating rejection.
+      void session.start().catch((error) => {
+        const failedStatus: RedebugStatus = {
+          phase: 'failed',
+          divergences: [],
+          error: `再現実行が異常終了しました: ${String(error)}`,
+        }
+        const window = this.getWindow()
+        if (window && !window.isDestroyed()) {
+          window.webContents.send(PUSH.redebugStatus, failedStatus)
+        }
+        session.dispose()
+        if (this.session === session) this.session = null
+      })
       return { ok: true }
     } catch (error) {
       return { ok: false, error: `再現実行を開始できません: ${String(error)}` }
@@ -32,7 +47,9 @@ export class RedebugManager {
   }
 
   async step(request: RedebugStepRequest): Promise<{ ok: boolean }> {
-    await this.session?.step(request)
+    // No live session = nothing stepped — never fake success.
+    if (!this.session) return { ok: false }
+    await this.session.step(request)
     return { ok: true }
   }
 

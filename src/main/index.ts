@@ -80,6 +80,8 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     // Finalizes any active recording before the session spool is dropped.
     void recordingManager.shutdownSession()
+    // The hidden Mode B window outlives the main window unless stopped here.
+    redebugManager.stop()
     mainWindow = null
   })
 

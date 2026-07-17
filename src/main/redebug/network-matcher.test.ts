@@ -59,6 +59,18 @@ describe('Mode B network matcher (decision 29 ordinal replay)', () => {
     expect(matcher.match('GET', 'http://localhost:3000/guestbook?tab=2')).toBeNull()
   })
 
+  it('serves a recorded exchange when only a trailing slash drifted, keeping root intact', () => {
+    // Arrange — recorded WITH a trailing slash
+    const matcher = new NetworkMatcher(
+      recordedExchange('r1', 'http://localhost:3000/guestbook/', 200, 'hash-slash'),
+    )
+
+    // Act + Assert — slashless replay still hits; the root path is never stripped
+    expect(normalizeMatchUrl('http://localhost:3000/guestbook/')).toBe('http://localhost:3000/guestbook')
+    expect(normalizeMatchUrl('http://localhost:3000/')).toBe('http://localhost:3000/')
+    expect(matcher.match('GET', 'http://localhost:3000/guestbook')?.bodyHash).toBe('hash-slash')
+  })
+
   it('matches ignoring URL fragments and skips exchanges that never completed', () => {
     // Arrange — r1 has no response row (in-flight at rec stop)
     const matcher = new NetworkMatcher([

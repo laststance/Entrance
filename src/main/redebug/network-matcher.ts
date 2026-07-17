@@ -55,6 +55,11 @@ export function normalizeMatchUrl(rawUrl: string): string {
     // matches — and a miss makes the router hard-navigate (fetch-server-
     // response.js "Falling back to browser navigation") onto chrome-error://.
     url.searchParams.delete('_rsc')
+    // /path and /path/ are the same resource to every dev server we target —
+    // a trailing-slash drift must not split a key's FIFO ordinals. Root stays.
+    if (url.pathname.length > 1 && url.pathname.endsWith('/')) {
+      url.pathname = url.pathname.slice(0, -1)
+    }
     return url.toString()
   } catch {
     return rawUrl

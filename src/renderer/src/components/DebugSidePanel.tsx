@@ -77,25 +77,25 @@ export function DebugSidePanel({
           </button>
         ))}
       </div>
-      {tab === 'sources' ? (
-        <>
-          <RedebugPanel
-            recordingId={recordingId}
-            t0Mono={t0Mono}
-            inputLane={inputLane}
-            anchors={anchors}
-            onPauseFramesChangeAction={setPauseFrames}
-          />
-          <CodePanel
-            anchors={anchors}
-            profileTimeline={profileTimeline}
-            resolver={resolver}
-            overrideFrames={pauseFrames}
-          />
-        </>
-      ) : (
-        <DebugLaneTab tab={tab} items={items} onSeekAction={onSeekAction} />
-      )}
+      {/* Sources stays MOUNTED across tab switches (CSS-hidden): unmounting
+          RedebugPanel fires its cleanup redebugStop(), destroying a live
+          paused Mode B session the user only meant to glance away from. */}
+      <div className={tab === 'sources' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
+        <RedebugPanel
+          recordingId={recordingId}
+          t0Mono={t0Mono}
+          inputLane={inputLane}
+          anchors={anchors}
+          onPauseFramesChangeAction={setPauseFrames}
+        />
+        <CodePanel
+          anchors={anchors}
+          profileTimeline={profileTimeline}
+          resolver={resolver}
+          overrideFrames={pauseFrames}
+        />
+      </div>
+      {tab !== 'sources' && <DebugLaneTab tab={tab} items={items} onSeekAction={onSeekAction} />}
     </div>
   )
 }

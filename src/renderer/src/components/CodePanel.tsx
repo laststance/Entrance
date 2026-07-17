@@ -67,11 +67,12 @@ export function CodePanel({
     const ticket = requestTicketRef.current + 1
     requestTicketRef.current = ticket
     void (async () => {
-      // A pause must show its stop location even inside a library listener;
+      // A pause shows the ACTUAL stop frame (DevTools semantics, vendor
+      // allowed — resolveTopFrame walks down until something resolves);
       // playhead-driven stacks keep the app-only filter (no node_modules jumps).
-      const location =
-        (await resolver.resolveAppFrame(activeFrames)) ??
-        (isPauseOverride ? await resolver.resolveTopFrame(activeFrames) : null)
+      const location = isPauseOverride
+        ? await resolver.resolveTopFrame(activeFrames)
+        : await resolver.resolveAppFrame(activeFrames)
       // Keep the previous source on screen when nothing resolved.
       if (requestTicketRef.current === ticket && location) {
         setResolved({ location, label: headerLabel })

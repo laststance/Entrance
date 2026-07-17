@@ -16,8 +16,11 @@ import {
  * Called once per RedebugSession start.
  */
 
+/** Electron Cookie fields Mode B restores — validated, never a blind cast (hostile bundle). */
+export type EnclaveCookie = z.infer<typeof enclaveCookieSchema>
+
 export interface RedebugEnclave {
-  cookies: unknown[]
+  cookies: EnclaveCookie[]
   localStorage: Record<string, string>
   sessionStorage: Record<string, string>
   /** Real Set-Cookie values keyed by recorded requestId (restored on fulfill). */
@@ -37,6 +40,18 @@ export interface RedebugBundle {
   viewport: { width: number; height: number } | null
 }
 
+// Shape of session.cookies.get() rows as the recorder stored them. Rows that
+// fail validation are dropped (cookie restore is best-effort by design).
+const enclaveCookieSchema = z.object({
+  name: z.string(),
+  value: z.string(),
+  domain: z.string().optional(),
+  path: z.string().optional(),
+  secure: z.boolean().optional(),
+  httpOnly: z.boolean().optional(),
+  expirationDate: z.number().optional(),
+  sameSite: z.enum(['unspecified', 'no_restriction', 'lax', 'strict']).optional(),
+})
 const enclaveSnapshotSchema = z.looseObject({
   kind: z.literal('state-snapshot'),
   cookies: z.array(z.unknown()).catch([]),
@@ -98,6 +113,9 @@ export function readRedebugBundle(recordingDirPath: string): RedebugBundle {
     const snapshot = enclaveSnapshotSchema.safeParse(row)
     if (snapshot.success) {
       enclave.cookies = snapshot.data.cookies
+        .map((cookie) => enclaveCookieSchema.safeParse(cookie))
+        .filter((parsed) => parsed.success)
+        .map((parsed) => parsed.data)
       enclave.localStorage = snapshot.data.localStorage
       enclave.sessionStorage = snapshot.data.sessionStorage
       continue

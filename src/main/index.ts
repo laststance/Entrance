@@ -130,6 +130,16 @@ void app.whenReady().then(() => {
   registerIpcHandlers(recordingManager, redebugManager)
   createWindow()
 
+  // Headless QA entry: ENTRANCE_HARVEST_RECORDING_ID=<id> runs a coverage
+  // harvest on boot and logs status to stdout (drives P4-style verification
+  // without the renderer UI).
+  const harvestRecordingId = process.env.ENTRANCE_HARVEST_RECORDING_ID
+  if (harvestRecordingId) {
+    void redebugManager
+      .start({ recordingId: harvestRecordingId, harvest: true })
+      .then((result) => console.log('[harvest] start:', JSON.stringify(result)))
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

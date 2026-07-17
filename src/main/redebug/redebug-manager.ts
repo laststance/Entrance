@@ -20,6 +20,18 @@ export class RedebugManager {
     this.stop()
     try {
       const session = new RedebugSession(recordingDir(request.recordingId), request, (status) => {
+        // Headless harvest runs watch stdout — the renderer may never open the panel.
+        if (process.env.ENTRANCE_HARVEST_RECORDING_ID) {
+          console.log(
+            `[harvest] ${status.phase}`,
+            JSON.stringify({
+              progress: status.harvest,
+              result: status.harvestResult,
+              divergences: status.divergences.length,
+              error: status.error,
+            }),
+          )
+        }
         const window = this.getWindow()
         if (window && !window.isDestroyed()) window.webContents.send(PUSH.redebugStatus, status)
       })

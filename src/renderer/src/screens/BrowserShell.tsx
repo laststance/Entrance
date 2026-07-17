@@ -245,6 +245,12 @@ function RecHud() {
 /** Bottom-right stack of recent meaningful events while recording (mock 1d toasts). */
 function LiveEventToasts() {
   const rows = useSyncExternalStore(cdpLogStore.subscribe, cdpLogStore.getSnapshot)
+  const { status, receivedAt } = useSyncExternalStore(
+    recStatusStore.subscribe,
+    recStatusStore.getSnapshot,
+  )
+  // Rec start in epoch ms — mock 1d right-aligns each toast's offset into the recording.
+  const recStartEpoch = status.state === 'recording' ? receivedAt - status.elapsedMs : null
   const recentRows = rows.filter(isMeaningfulRecEvent).slice(-REC_TOAST_MAX_ROWS)
   if (recentRows.length === 0) return null
   return (
@@ -261,6 +267,11 @@ function LiveEventToasts() {
             </span>
             {toastBody(row)}
           </span>
+          {recStartEpoch !== null && (
+            <span className="shrink-0 text-muted-foreground">
+              {formatRecClock(Math.max(0, row.ts - recStartEpoch))}
+            </span>
+          )}
         </div>
       ))}
     </div>

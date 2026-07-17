@@ -68,6 +68,8 @@ export function EmptyState() {
             <input
               value={urlInput}
               onChange={(event) => setUrlInput(event.target.value)}
+              // Mock 1f shows the field ready-to-type; desktop app, no soft-keyboard concern.
+              autoFocus
               spellCheck={false}
               className="h-11 min-w-0 flex-1 rounded-[10px] border border-border bg-sunken px-4 font-mono text-[13px] text-foreground outline-none select-text placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/60"
               placeholder="http://localhost:3000"

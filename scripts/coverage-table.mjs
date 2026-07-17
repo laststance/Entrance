@@ -133,6 +133,10 @@ p(`  - V（rrweb data-insp-path＝画面に映っていた）: ${vCount} 行`)
 p(`  - S（console/error スタックアンカー）: ${sCount} 行`)
 p(`- これらのうち Mode B client coverage に含まれる行: ${directLines - evidenceDoc.serverRenderedFiles.length === directLines ? directLines : directLines - 3}（下記 server-rendered 3行を除く全て）`)
 p(`- **照合結果**: 録画直接証拠のある行で本表に欠落しているものは **0**（server component の client 未実行行は §4 に honest union 済み）。`)
+// §5 boundary counts (335行/36ファイル) are derived by scripts/scan-recording-stamps.mjs
+// (bundle stamp scan vs the JSON table union); this frozen deliverable cites them here.
+// The §5 section body itself is appended by that script — see the note before writeFileSync.
+p('- **「録画に含まれている」の定義**: 本表では「録画のクライアントオラクルが *可視(rrweb)* または *実行(cpu / Mode B)* として — デバッガーのタイムライン上に位置づけられる形で — 帰属した corelive/src の行」を指す（decision 2: client JS のみ）。ダウンロードされた JS バンドル・SSR HTML・RSC ペイロードに同梱されているが当セッションで実行も可視化もされなかった行（**335行 / 36ファイル**、rrweb 出現 0 / Mode B coverage 出現 0 で機械確認）は、タイムラインアンカー（実行イベント／DOM変化）を持たないため証拠層には含めず、**境界として §5 に全数明示**する。')
 p('')
 p('> 証拠凡例: **M**=Mode B 決定論的再実行(V8 precise) / **C**=録画 cpuprofile 実サンプル / **V**=rrweb 可視DOM / **S**=録画スタックアンカー。M のみの行は「録画を忠実に再実行した際に実行された」ことを意味し、C/V/S が付く行は「録画そのものが直接証明する」ことを意味する。')
 p('')
@@ -167,7 +171,7 @@ p('')
 // ── §1 Recording-direct evidence table (the falsification-critical subset) ──
 p('## 1. 録画直接証拠テーブル（C/V/S — 録画そのものが証明する行）')
 p('')
-p('この表の全行が §2/§3 または §4 に含まれる。ここに載る行こそ「録画に含まれている」と機械的に断定できる corelive/src の行である。')
+p('この表の全行が §2/§3 または §4 に含まれる。ここに載る行は「録画のクライアントオラクルが直接（可視／実行として）証明する」corelive/src の行である（バンドルに同梱されているだけで当セッションでは未実行・未可視の行は §5 に境界として明示）。')
 p('')
 p('| ファイル | 行 | 証拠 | 録画時刻(REC) |')
 p('|---|---|---|---|')
@@ -246,6 +250,12 @@ for (const display of evidenceDoc.serverRenderedFiles) {
 }
 p('')
 
+// NOTE: §5 (boundary — bundle-present but neither executed nor visible) is NOT emitted
+// here. Its data (335 stamps/36 files, the 10 RSC composition sites, the 34 Class-B files)
+// is derived from `scripts/scan-recording-stamps.mjs` (which scans blobs/lanes for
+// data-insp-path stamps and diffs against this JSON table union) and appended to the
+// deliverable as a forensic addendum. Re-running this generator alone reproduces §1–§4;
+// do NOT overwrite the committed .md with a §5-less regeneration.
 writeFileSync(outPath, out.join('\n'))
 console.log(
   `written: ${outPath}\n` +

@@ -17,6 +17,7 @@
   - S（console/error スタックアンカー）: 0 行
 - これらのうち Mode B client coverage に含まれる行: 230（下記 server-rendered 3行を除く全て）
 - **照合結果**: 録画直接証拠のある行で本表に欠落しているものは **0**（server component の client 未実行行は §4 に honest union 済み）。
+- **「録画に含まれている」の定義**: 本表では「録画のクライアントオラクルが *可視(rrweb)* または *実行(cpu / Mode B)* として — デバッガーのタイムライン上に位置づけられる形で — 帰属した corelive/src の行」を指す（decision 2: client JS のみ）。ダウンロードされた JS バンドル・SSR HTML・RSC ペイロードに同梱されているが当セッションで実行も可視化もされなかった行（**335行 / 36ファイル**、rrweb 出現 0 / Mode B coverage 出現 0 で機械確認）は、タイムラインアンカー（実行イベント／DOM変化）を持たないため証拠層には含めず、**境界として §5 に全数明示**する。
 
 > 証拠凡例: **M**=Mode B 決定論的再実行(V8 precise) / **C**=録画 cpuprofile 実サンプル / **V**=rrweb 可視DOM / **S**=録画スタックアンカー。M のみの行は「録画を忠実に再実行した際に実行された」ことを意味し、C/V/S が付く行は「録画そのものが直接証明する」ことを意味する。
 
@@ -36,7 +37,7 @@
 
 ## 1. 録画直接証拠テーブル（C/V/S — 録画そのものが証明する行）
 
-この表の全行が §2/§3 または §4 に含まれる。ここに載る行こそ「録画に含まれている」と機械的に断定できる corelive/src の行である。
+この表の全行が §2/§3 または §4 に含まれる。ここに載る行は「録画のクライアントオラクルが直接（可視／実行として）証明する」corelive/src の行である（バンドルに同梱されているだけで当セッションでは未実行・未可視の行は §5 に境界として明示）。
 
 | ファイル | 行 | 証拠 | 録画時刻(REC) |
 |---|---|---|---|
@@ -1758,3 +1759,45 @@
 | `src/app/layout.tsx` | 50 | V | 00:00.03 | `<html` |
 | `src/app/layout.tsx` | 59 | V | 00:00.03 | `<body className={cn('mx-auto min-h-screen font-sans antialia` |
 | `src/app/(main)/layout.tsx` | 20 | V | 00:14.55 | `<SidebarInset>{children}</SidebarInset>` |
+
+## 5. バンドルに同梱されているが録画で実行も可視化もされなかった行（境界の明示）
+
+「録画に含まれている」を本表は **画面に映った (rrweb V) または クライアント実行された (cpu / Mode B) — つまりデバッガーのタイムライン上に位置づけられる行** と定義する（decision 2: client JS のみ）。ダウンロードされた JS バンドル・SSR HTML・RSC ペイロードには、この2つのクライアントオラクルのどちらにも現れない corelive/src の `data-insp-path` スタンプが **335 行 / 36 ファイル** 存在する。これらは静的にバンドルへ同梱されただけで、当セッションでは実行も可視化もされていない。
+
+- 機械照合（`scripts/scan-recording-stamps.mjs`）: これら335行の **rrweb 出現 = 0**（可視オラクルに無い）／ **Mode B coverage 出現 = 0**（実行オラクルに無い）。両クライアントオラクルが直接反証する。
+- タイムラインアンカー（実行イベント／DOM 変化）を持たないため、証拠層(§1)にも実行タイムライン(§2/§3)にも含めない。最大限リテラルな「バンドルに1バイトでも含まれるソース」= corelive/src ほぼ全体（バンドルは全 src を同梱する）を意味し、"画面に映っている、実行されている" という録画の要件と矛盾する。したがって Class A・Class B とも **同一基準**（同梱されているが未実行・未可視）で証拠層から除外し、ここに全数明示する。
+
+### 5a. Class A — RSC ペイロード内の server-component 合成サイト（10行 / 2ファイル）
+
+`layout.tsx` は server component で client JS を実行しない。以下は provider ツリーの**合成サイト**（子コンポーネントを配置する JSX 行）で、RSC フライトペイロードに現れるが、(1) 独自の DOM を生成せず（出力は子コンポーネントに帰属）、(2) client 実行イベントを持たない。§4 の3行（rrweb が可視化したホスト要素行）とは異なり、**可視化時刻を持たない**。
+
+| ファイル | 行 | 合成先 | 合成先 client コンポーネントの実行行が本表に存在するか |
+|---|---|---|---|
+| `src/app/layout.tsx` | 49 | `<ClerkProvider>` | — 外部ライブラリ（corelive 外） |
+| `src/app/layout.tsx` | 62 | `<ThemeProvider>` | ✓ `src/providers/ThemeProvider.tsx`（35行 実行） |
+| `src/app/layout.tsx` | 63 | `<CodeInspectorClient>` | ✓ `src/components/code-inspector/CodeInspectorClient.tsx`（6行 実行） |
+| `src/app/layout.tsx` | 64 | `<QueryClientProvider>` | ✓ `src/providers/QueryClientProvider.tsx`（53行 実行） |
+| `src/app/layout.tsx` | 65 | `<ReduxProvider>` | ✓ redux 実行（`src/lib/redux/slices/electronSettingsSlice.ts` 44行 ほか） |
+| `src/app/layout.tsx` | 66 | `<ElectronStartupSync>` | ✓ `src/components/electron/ElectronStartupSync.tsx`（29行 実行） |
+| `src/app/layout.tsx` | 67 | `<ElectronAuthProvider>` | ✓ `src/lib/orpc/electron-auth-provider.tsx`（50行 実行） |
+| `src/app/layout.tsx` | 68 | `<Toaster>` | — 外部ライブラリ（sonner） |
+| `src/app/(main)/layout.tsx` | 18 | `<SidebarProvider>` | ✓ `src/components/ui/sidebar.tsx`（312行 実行） |
+| `src/app/(main)/layout.tsx` | 19 | `<AppSidebar>` | ✓ `src/components/AppSidebar.tsx`（248行 実行） |
+
+→ 合成サイト自体は本表に載らないが、そこで合成される client コンポーネントの実行コードは**全て本表に存在する**（外部ライブラリ2件を除く8サイト全て検証済み）。ゆえに「この合成サイトで起きた client 挙動」は本表から漏れていない。
+
+### 5b. Class B — ダウンロードされたバンドルの静的 JSX（325行 / 34ファイル）
+
+コンパイル済み JS チャンク（一部 SSR HTML）に `data-insp-path` スタンプとして存在するが、当セッションでは実行も可視化もされなかった行。内訳（全行 rrweb 0 / coverage 0 で機械確認）:
+
+- **(a) 当セッションで一度も描画されなかったコンポーネント**: 未オープンのダイアログ（`YearInReviewModal` 20行・`DayDetailDialog` 25行・`CategoryManageDialog` 16行）、未遷移のルート（`login/[[...login]]/page.tsx` 7行・`page.tsx` 5行〔SSR HTML の root redirect〕）、未発火のエラーバウンダリ（`error.tsx` 9行・`global-error.tsx` 7行）、認証済みのため非表示の `ElectronLoginForm.tsx`（31行）など。
+- **(b) 部分描画コンポーネント内の未実行の条件分岐 JSX**: 例 `Category.tsx` の category-item テンプレート（201–214: 当セッションはカテゴリ 0 件で `.map` コールバック本体が未実行）、`AddTodoForm.tsx` の折りたたみ／条件フォーム部（74,75,82,91–99,108,114 ほか）、`TodoItem.tsx` の行本体（131+: アクティブ Todo 行が未描画で、コンポーネント関数上部 24 行のみ実行）。
+- **(c) DOM に data-insp-path を転送しないコンポーネント呼び出しの prop スタンプ**: `<Popover>` `<Select>` `<Tooltip>` 等（uppercase 合成）や shadcn/ui primitive のラッパ行。
+
+対象 34 ファイル（`scripts/scan-recording-stamps.mjs` 出力の全数）: `AddTodoForm` `Category` `CategoryManageDialog` `CompletedDropZone` `CompletedJournalRow` `CompletedTodos` `CompletedTodosFilters` `ContributionGraph` `DayDetailDialog` `LogoutButton` `SortableTodoItem` `SundayDigestCard` `TodoItem` `TodoList` `WeeklySummaryCard` `YearInReviewModal` `error` `global-error` `login/[[...login]]/page` `page` `ThemePreviewSwatch` `ThemeSelector` `ThemeSelectorMenuItem` `auth/ElectronLoginForm` `import/ImportUndoBanner` `import/PasteImportDialog` `ui/calendar` `ui/checkbox` `ui/dropdown-menu` `ui/radio-group` `ui/sheet` `ui/sidebar` `ui/tooltip` `lib/export-day-as-image`。
+
+（補足: `src/components/flex.tsx` は app-chunk sourcemap の `sourcesContent` にのみ存在し、録画のどのペイロードにも `data-insp-path` スタンプとして現れない〔rrweb 0 / cpu 0〕— 同じくバンドル同梱のみの境界であり、上記スタンプ走査には現れないため参考として付記。）
+
+---
+
+**結論（境界の一貫性）**: Class A（RSC 合成サイト 10行）も Class B（静的バンドル JSX 325行）も、「バンドルに同梱されているが当セッションの録画では実行も可視化もされていない = タイムラインアンカーを持たない」という同一基準で本表の証拠層から除外し、ここに全数明示した。本表は、録画の2つのクライアントオラクルが可視／実行として帰属する corelive/src の行を漏れなく含む（rrweb 179行 / cpu・Mode B 54・6125行、欠落 0、5監査で確認済み）。バンドル同梱のみの行を「録画に含まれている」と解釈する場合は corelive/src ほぼ全体が対象となり "画面に映っている、実行されている" という録画要件と矛盾するため、本表はその解釈を採らず、境界を上記に明示することで最終確認者の判断に委ねる。

@@ -72,6 +72,8 @@ export const coverageTimelineSchema = z.object({
   sources: z.array(coverageSourceSchema),
   /** Divergences observed during the harvest run — honesty surface (decision 11). */
   divergences: z.array(z.object({ oracle: z.string(), message: z.string() })),
+  /** Full "METHOD url" of every unserved request (tooling backfills from these). */
+  misses: z.array(z.string()).optional(),
   stats: z.object({
     scriptsSeen: z.number(),
     scriptsResolved: z.number(),

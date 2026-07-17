@@ -124,6 +124,8 @@ export class RedebugSession {
   private inputsDispatched = 0
   private inputsTotal = 0
   private harvestResult: RedebugStatus['harvestResult']
+  /** Full "METHOD url" of unserved requests (divergence messages truncate). */
+  private readonly harvestMisses: string[] = []
 
   constructor(
     private readonly recordingDirPath: string,
@@ -425,6 +427,7 @@ export class RedebugSession {
 
     const recorded = this.matcher.match(method, url)
     if (!recorded) {
+      if (this.collector) this.harvestMisses.push(`${method} ${url}`)
       // resourceType tells Document reload apart from an RSC fetch — without it
       // this message is undiagnosable when the URL alone looks legitimate.
       this.diverge(
@@ -667,6 +670,7 @@ export class RedebugSession {
         recordingId,
         durationMs,
         divergences: this.divergences.map((d) => ({ oracle: d.oracle, message: d.message })),
+        misses: [...new Set(this.harvestMisses)],
       })
       this.harvestResult = {
         bucketCount: timeline.buckets.length,

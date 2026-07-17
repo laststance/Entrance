@@ -166,6 +166,7 @@ export class CoverageCollector {
       recordingId: string
       durationMs: number
       divergences: Array<{ oracle: string; message: string }>
+      misses: string[]
     },
   ): Promise<CoverageTimeline> {
     await send('Profiler.stopPreciseCoverage').catch(() => {})
@@ -335,6 +336,7 @@ export class CoverageCollector {
       buckets,
       sources,
       divergences: meta.divergences,
+      misses: meta.misses,
       stats: {
         scriptsSeen,
         scriptsResolved,

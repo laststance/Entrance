@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 
 import WebSocket from 'ws'
 
@@ -77,8 +77,37 @@ try {
     const shot = await sendCommand(socket, 1, 'Page.captureScreenshot', { format: 'png' })
     writeFileSync(argument, Buffer.from(shot.data, 'base64'))
     console.log(`saved ${argument}`)
+  } else if (command === 'burst') {
+    // Motion QA (house rule: verify replay/animation from frames, not statics):
+    // capture a frame series over ONE socket — assemble/inspect with ffmpeg.
+    //   node scripts/qa-drive.mjs burst <dir> <frameCount> <intervalMs>
+    const [, , , frameDir, frameCountRaw, intervalRaw] = process.argv
+    const frameCount = Number(frameCountRaw ?? 30)
+    const intervalMs = Number(intervalRaw ?? 300)
+    mkdirSync(frameDir, { recursive: true })
+    for (let frameIndex = 0; frameIndex < frameCount; frameIndex++) {
+      const startedAt = Date.now()
+      const frame = await sendCommand(socket, 10 + frameIndex, 'Page.captureScreenshot', {
+        format: 'png',
+      })
+      writeFileSync(
+        `${frameDir}/frame_${String(frameIndex).padStart(3, '0')}.png`,
+        Buffer.from(frame.data, 'base64'),
+      )
+      const elapsed = Date.now() - startedAt
+      if (elapsed < intervalMs) await new Promise((r) => setTimeout(r, intervalMs - elapsed))
+    }
+    console.log(`saved ${frameCount} frames to ${frameDir}`)
+  } else if (command === 'click') {
+    // Trusted click on the APP renderer (Base UI poppers ignore synthetic
+    // events): node scripts/qa-drive.mjs click <x> <y>
+    const [, , , clickX, clickY] = process.argv
+    const base = { x: Number(clickX), y: Number(clickY), button: 'left', clickCount: 1 }
+    await sendCommand(socket, 1, 'Input.dispatchMouseEvent', { ...base, type: 'mousePressed' })
+    await sendCommand(socket, 2, 'Input.dispatchMouseEvent', { ...base, type: 'mouseReleased' })
+    console.log(`clicked ${clickX},${clickY}`)
   } else {
-    console.error('usage: qa-drive.mjs eval "<expr>" | shot <path.png>')
+    console.error('usage: qa-drive.mjs eval "<expr>" | shot <path.png> | burst <dir> <n> <ms> | click <x> <y>')
     process.exitCode = 1
   }
 } finally {

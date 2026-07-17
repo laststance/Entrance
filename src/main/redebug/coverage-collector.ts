@@ -253,6 +253,10 @@ export class CoverageCollector {
           scriptsSeen++
         }
         const url = script.url || this.scriptUrlById.get(script.scriptId) || ''
+        // React's about:// fake scripts exist for SERVER-component stack
+        // attribution; counting them would claim server code executed in the
+        // browser (v1 scope is client JS only — decision 2).
+        if (url.startsWith('about://')) continue
         const mappings = loadMappings(url)
         if (!mappings || mappings.length === 0) continue
         const lineStarts = await loadLineStarts(script.scriptId)

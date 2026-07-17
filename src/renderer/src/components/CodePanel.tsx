@@ -68,11 +68,14 @@ export function CodePanel({
     requestTicketRef.current = ticket
     void (async () => {
       // A pause shows the ACTUAL stop frame (DevTools semantics, vendor
-      // allowed — resolveTopFrame walks down until something resolves);
-      // playhead-driven stacks keep the app-only filter (no node_modules jumps).
+      // allowed — resolveTopFrame walks down until something resolves).
+      // Playhead stacks prefer the deepest app frame, but fall back to the
+      // vendor top frame: an honest "this framework code was executing"
+      // beats a blank panel when a burst never touched app code.
       const location = isPauseOverride
         ? await resolver.resolveTopFrame(activeFrames)
-        : await resolver.resolveAppFrame(activeFrames)
+        : ((await resolver.resolveAppFrame(activeFrames)) ??
+          (await resolver.resolveTopFrame(activeFrames)))
       // Keep the previous source on screen when nothing resolved.
       if (requestTicketRef.current === ticket && location) {
         setResolved({ location, label: headerLabel })

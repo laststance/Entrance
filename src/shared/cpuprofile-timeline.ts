@@ -36,10 +36,10 @@ export const cpuProfileFileSchema = z.object({
 export type CpuProfileFile = z.infer<typeof cpuProfileFileSchema>
 
 export interface ProfileTimeline {
-  /** Ascending tMonoOffset per sample (parallel to stacks). */
+  /** Ascending tMonoOffset per EXECUTED sample (idle samples dropped at build). */
   sampleOffsets: number[]
-  /** Top-first call frames per sample; null for idle/meta samples. */
-  stacks: Array<CodeFrame[] | null>
+  /** Top-first call frames per executed sample (parallel to sampleOffsets). */
+  stacks: CodeFrame[][]
 }
 
 /** V8 meta frames that mean "nothing of the page is executing". */
@@ -84,25 +84,31 @@ export function buildProfileTimeline(file: CpuProfileFile, t0Mono: number): Prof
   }
 
   const sampleOffsets: number[] = []
-  const stacks: Array<CodeFrame[] | null> = []
+  const stacks: CodeFrame[][] = []
   // timeDeltas[i] is µs since the previous sample (first delta from startTime).
   let elapsedUs = 0
   const baseOffsetMs = profilerStartMono - t0Mono
   for (let index = 0; index < profile.samples.length; index += 1) {
     elapsedUs += profile.timeDeltas[index] ?? 0
+    const stack = stackFor(profile.samples[index])
+    // Idle samples are dropped so the lookup is sticky: a page executes JS in
+    // millisecond bursts (>99% of samples are idle), and "the code running at
+    // this position" means the most recently executed stack, not a blank
+    // panel whenever the playhead lands between bursts.
+    if (!stack) continue
     sampleOffsets.push(baseOffsetMs + elapsedUs / 1000)
-    stacks.push(stackFor(profile.samples[index]))
+    stacks.push(stack)
   }
   return { sampleOffsets, stacks }
 }
 
 /**
- * The stack executing at a playhead position (function-level highlight).
+ * The stack most recently executed at a playhead position (function-level highlight).
  * @param timeline - buildProfileTimeline output
  * @param tMonoOffsetMs - playhead position
  * @returns
- * - top-first frames of the sample at/before the position
- * - null when before the first sample or the page was idle
+ * - top-first frames of the last executed sample at/before the position
+ * - null only before any page code has run
  * @example profileStackAt(timeline, 12_400)?.[0].url // => 'http://localhost:3000/...'
  */
 export function profileStackAt(timeline: ProfileTimeline, tMonoOffsetMs: number): CodeFrame[] | null {

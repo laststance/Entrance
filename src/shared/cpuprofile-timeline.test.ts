@@ -30,11 +30,12 @@ const profileFile = cpuProfileFileSchema.parse({
 
 describe('cpuprofile timeline (decision 3 function-level highlight)', () => {
   it('maps V8 sample times onto the canonical clock via the calibration pair', () => {
-    // Arrange — t0Mono 1000, profiler started at 1500 → samples at 510/530/550ms
+    // Arrange — t0Mono 1000, profiler started at 1500 → samples at 510/530/550ms;
+    // the idle sample at 550 is dropped from the executed-sample timeline.
     const timeline = buildProfileTimeline(profileFile, 1000)
 
     // Act + Assert
-    expect(timeline.sampleOffsets).toEqual([510, 530, 550])
+    expect(timeline.sampleOffsets).toEqual([510, 530])
   })
 
   it('reports the executing stack leaf-first and strips V8 meta frames', () => {
@@ -48,12 +49,23 @@ describe('cpuprofile timeline (decision 3 function-level highlight)', () => {
     expect(stack?.map((frame) => frame.functionName)).toEqual(['innerFn', 'appFn'])
   })
 
-  it('returns null before the first sample and during idle samples', () => {
+  it('keeps the last executed stack on screen through idle gaps', () => {
+    // Arrange — page JS runs in ms bursts; >99% of samples are idle
+    const timeline = buildProfileTimeline(profileFile, 1000)
+
+    // Act + Assert — long after the last burst (idle sample at 550 skipped),
+    // the panel still shows what ran most recently instead of going blank
+    expect(profileStackAt(timeline, 999)?.map((frame) => frame.functionName)).toEqual([
+      'innerFn',
+      'appFn',
+    ])
+  })
+
+  it('returns null before any page code has run', () => {
     // Arrange
     const timeline = buildProfileTimeline(profileFile, 1000)
 
     // Act + Assert
     expect(profileStackAt(timeline, 100)).toBeNull()
-    expect(profileStackAt(timeline, 999)).toBeNull()
   })
 })

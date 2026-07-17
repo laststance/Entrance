@@ -72,6 +72,25 @@ describe('Mode B network matcher (decision 29 ordinal replay)', () => {
     expect(matcher.match('GET', 'http://localhost:3000/guestbook')?.bodyHash).toBe('hash-slash')
   })
 
+  it('serves a recorded Clerk catch-all probe despite its Date.now() path suffix', () => {
+    // Arrange — Clerk appends the current epoch ms to the probe path, so the
+    // replay's probe URL never equals the recorded one byte-for-byte.
+    const matcher = new NetworkMatcher(
+      recordedExchange(
+        'r1',
+        'http://localhost:3000/login/SignIn_clerk_catchall_check_1784294840305',
+        200,
+        'probe-body',
+      ),
+    )
+
+    // Act + Assert — a differently-stamped probe still pairs with the recording
+    expect(
+      matcher.match('GET', 'http://localhost:3000/login/SignIn_clerk_catchall_check_1784999999999')
+        ?.bodyHash,
+    ).toBe('probe-body')
+  })
+
   it('matches ignoring URL fragments and skips exchanges that never completed', () => {
     // Arrange — r1 has no response row (in-flight at rec stop)
     const matcher = new NetworkMatcher([

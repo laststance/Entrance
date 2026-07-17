@@ -60,6 +60,13 @@ export function normalizeMatchUrl(rawUrl: string): string {
     if (url.pathname.length > 1 && url.pathname.endsWith('/')) {
       url.pathname = url.pathname.slice(0, -1)
     }
+    // Clerk probes for a catch-all route with a Date.now()-suffixed path
+    // (SignIn_clerk_catchall_check_<ms>) — the suffix differs every run, so
+    // record/replay can only pair on the timestamp-stripped form.
+    url.pathname = url.pathname.replace(
+      /_clerk_catchall_check_\d+$/,
+      '_clerk_catchall_check',
+    )
     return url.toString()
   } catch {
     return rawUrl

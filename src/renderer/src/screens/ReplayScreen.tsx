@@ -180,6 +180,7 @@ function ReplayLoaded({ loadPromise }: { loadPromise: Promise<LoadedRecording> }
             items={transcriptItems}
             anchors={codeAnchors}
             profileTimeline={profileTimeline}
+            coverageTimeline={recording.coverageTimeline}
             resolver={sourceResolver}
             recordingId={recording.manifest.recordingId}
             t0Mono={recording.manifest.t0Mono}

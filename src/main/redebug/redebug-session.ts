@@ -126,6 +126,9 @@ export class RedebugSession {
   private harvestResult: RedebugStatus['harvestResult']
   /** Full "METHOD url" of unserved requests (divergence messages truncate). */
   private readonly harvestMisses: string[] = []
+  /** Harvest-only console/exception log (full stacks) — dumped into coverage-debug.json. */
+  private readonly harvestDiag: Array<Record<string, unknown>> = []
+  private harvestStartedWall = 0
 
   constructor(
     private readonly recordingDirPath: string,
@@ -281,6 +284,7 @@ export class RedebugSession {
       if (this.request.harvest) {
         // Coverage harvest never pauses — block-precise counters instead.
         this.collector = new CoverageCollector(this.recordingDirPath)
+        this.harvestStartedWall = Date.now()
         await this.collector.attach(send)
       } else if (this.request.breakpoint) {
         // Line-exact pause at a recorded anchor location (decision 30b).
@@ -406,10 +410,48 @@ export class RedebugSession {
         this.pushStatus()
       }
     } else if (method === 'Runtime.exceptionThrown') {
+      if (this.collector) this.captureHarvestException(params)
       this.checkExceptionOracle(
         params as { exceptionDetails?: { text?: string; exception?: { description?: string } } },
       )
+    } else if (method === 'Runtime.consoleAPICalled' && this.collector) {
+      const call = params as { type?: string; args?: Array<{ value?: unknown; description?: string }> }
+      this.harvestDiag.push({
+        atMs: Date.now() - this.harvestStartedWall,
+        kind: `console.${call.type ?? 'log'}`,
+        text: (call.args ?? [])
+          .map((arg) => (arg.value !== undefined ? String(arg.value) : (arg.description ?? '')))
+          .join(' ')
+          .slice(0, 600),
+      })
     }
+  }
+
+  /** Harvest diagnostics: full exception description + stack (the oracle keeps one line only). */
+  private captureHarvestException(params: unknown): void {
+    const details = (
+      params as {
+        exceptionDetails?: {
+          text?: string
+          url?: string
+          lineNumber?: number
+          exception?: { description?: string }
+          stackTrace?: {
+            callFrames?: Array<{ functionName?: string; url?: string; lineNumber?: number }>
+          }
+        }
+      }
+    ).exceptionDetails
+    this.harvestDiag.push({
+      atMs: Date.now() - this.harvestStartedWall,
+      kind: 'exception',
+      text: (details?.exception?.description ?? details?.text ?? '').slice(0, 2000),
+      url: details?.url,
+      line: details?.lineNumber,
+      stack: (details?.stackTrace?.callFrames ?? []).map(
+        (frame) => `${frame.functionName || '(anon)'} @ ${frame.url}:${frame.lineNumber}`,
+      ),
+    })
   }
 
   /** Every request — including the Document — is served from the recording. */
@@ -671,6 +713,7 @@ export class RedebugSession {
         durationMs,
         divergences: this.divergences.map((d) => ({ oracle: d.oracle, message: d.message })),
         misses: [...new Set(this.harvestMisses)],
+        diag: this.harvestDiag,
       })
       this.harvestResult = {
         bucketCount: timeline.buckets.length,

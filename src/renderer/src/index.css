@@ -138,6 +138,11 @@
   background: color-mix(in srgb, var(--primary) 16%, transparent);
   box-shadow: inset 2px 0 0 var(--primary);
 }
+/* Coverage view: line executed at some point of the recording (current-bucket
+   lines use .cm-exec-line on top). */
+.cm-cov-line {
+  background: color-mix(in srgb, var(--primary) 5%, transparent);
+}
 /* CodeMirror fills its panel and inherits the app's mono sizing. */
 .cm-theme, .cm-editor {
   height: 100%;

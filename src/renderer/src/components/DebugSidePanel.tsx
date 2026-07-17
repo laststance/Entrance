@@ -3,6 +3,7 @@ import { memo, useMemo, useState, useSyncExternalStore } from 'react'
 import { Virtuoso } from 'react-virtuoso'
 
 import type { CodeAnchor, CodeFrame } from '@shared/code-anchors'
+import type { CoverageTimeline } from '@shared/coverage-timeline'
 import type { ProfileTimeline } from '@shared/cpuprofile-timeline'
 import type { ReplayLaneEvent } from '@shared/replay'
 import type { TranscriptItem } from '@shared/transcript-items'
@@ -13,6 +14,7 @@ import type { SourceResolver } from '../lib/replay/source-resolver'
 import { formatRecClock } from '../lib/format-rec-clock'
 import { playheadStore } from '../lib/replay/playhead-store'
 import { CodePanel } from './CodePanel'
+import { CoverageCodeView } from './CoverageCodeView'
 import { RedebugPanel } from './RedebugPanel'
 
 /**
@@ -40,6 +42,7 @@ export function DebugSidePanel({
   items,
   anchors,
   profileTimeline,
+  coverageTimeline,
   resolver,
   recordingId,
   t0Mono,
@@ -49,6 +52,8 @@ export function DebugSidePanel({
   items: TranscriptItem[]
   anchors: CodeAnchor[]
   profileTimeline: ProfileTimeline | null
+  /** Mode B precise-coverage artifact — when present it replaces the sampling code view. */
+  coverageTimeline: CoverageTimeline | null
   resolver: SourceResolver
   recordingId: string
   t0Mono: number
@@ -88,12 +93,18 @@ export function DebugSidePanel({
           anchors={anchors}
           onPauseFramesChangeAction={setPauseFrames}
         />
-        <CodePanel
-          anchors={anchors}
-          profileTimeline={profileTimeline}
-          resolver={resolver}
-          overrideFrames={pauseFrames}
-        />
+        {/* Priority (decision 3 + coverage goal): Mode B pause frames > precise
+            coverage timeline > sampling/anchor CodePanel. */}
+        {pauseFrames || !coverageTimeline ? (
+          <CodePanel
+            anchors={anchors}
+            profileTimeline={profileTimeline}
+            resolver={resolver}
+            overrideFrames={pauseFrames}
+          />
+        ) : (
+          <CoverageCodeView timeline={coverageTimeline} />
+        )}
       </div>
       {tab !== 'sources' && <DebugLaneTab tab={tab} items={items} onSeekAction={onSeekAction} />}
     </div>

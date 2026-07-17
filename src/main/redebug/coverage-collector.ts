@@ -167,6 +167,8 @@ export class CoverageCollector {
       durationMs: number
       divergences: Array<{ oracle: string; message: string }>
       misses: string[]
+      /** Session-captured console/exception log — persisted for harvest debugging. */
+      diag?: Array<Record<string, unknown>>
     },
   ): Promise<CoverageTimeline> {
     await send('Profiler.stopPreciseCoverage').catch(() => {})
@@ -350,6 +352,34 @@ export class CoverageCollector {
     writeFileSync(
       join(this.recordingDirPath, COVERAGE_TIMELINE_FILE),
       JSON.stringify(timeline),
+    )
+
+    // Debug sidecar: raw per-bucket execution + map resolution status + the
+    // session's console/exception log — the "why is coverage empty" answers.
+    const executedUrls = new Set<string>()
+    const debugBuckets = this.deltas.map((delta) => ({
+      t: [delta.boundary.tStart, delta.boundary.tEnd],
+      kind: delta.boundary.kind,
+      scripts: delta.scripts.map((script) => {
+        const url = script.url || this.scriptUrlById.get(script.scriptId) || `id:${script.scriptId}`
+        executedUrls.add(url)
+        return {
+          url,
+          executedRanges: script.functions.reduce(
+            (total, fn) => total + fn.ranges.filter((range) => range.count > 0).length,
+            0,
+          ),
+        }
+      }),
+    }))
+    const mapStatus = [...executedUrls].map((url) => ({
+      url,
+      hasMap: this.mapPathByScriptUrl.has(url),
+      appMappings: mappingsByUrl.get(url)?.length ?? 0,
+    }))
+    writeFileSync(
+      join(coverageDir, 'coverage-debug.json'),
+      JSON.stringify({ diag: meta.diag ?? [], mapStatus, buckets: debugBuckets }, null, 1),
     )
     return timeline
   }

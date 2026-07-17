@@ -1,4 +1,9 @@
 import { LANES, type Lane } from '@shared/envelope'
+import {
+  COVERAGE_TIMELINE_FILE,
+  coverageTimelineSchema,
+  type CoverageTimeline,
+} from '@shared/coverage-timeline'
 import { cpuProfileFileSchema, type CpuProfileFile } from '@shared/cpuprofile-timeline'
 import {
   parseLaneJsonl,
@@ -25,6 +30,8 @@ export interface LoadedRecording {
   sourcemapIndex: SourcemapIndexEntry[]
   /** V8 CPU profile + calibration (decision 3); null for pre-P1 or crashed recordings. */
   cpuProfile: CpuProfileFile | null
+  /** Mode B precise-coverage timeline; null until a harvest has run. */
+  coverageTimeline: CoverageTimeline | null
 }
 
 /**
@@ -43,6 +50,7 @@ export async function loadRecording(recordingId: string): Promise<LoadedRecordin
   const lanes: Partial<Record<Lane, ReplayLaneEvent[]>> = {}
   let sourcemapIndex: SourcemapIndexEntry[] = []
   let cpuProfile: CpuProfileFile | null = null
+  let coverageTimeline: CoverageTimeline | null = null
   await Promise.all([
     ...LANES.map(async (lane) => {
       const laneResponse = await fetch(`entrance://recording/${recordingId}/lanes/${lane}.jsonl`)
@@ -65,6 +73,14 @@ export async function loadRecording(recordingId: string): Promise<LoadedRecordin
       const parsed = cpuProfileFileSchema.safeParse(await profileResponse.json())
       if (parsed.success) cpuProfile = parsed.data
     })(),
+    (async () => {
+      const coverageResponse = await fetch(
+        `entrance://recording/${recordingId}/${COVERAGE_TIMELINE_FILE}`,
+      )
+      if (!coverageResponse.ok) return
+      const parsed = coverageTimelineSchema.safeParse(await coverageResponse.json())
+      if (parsed.success) coverageTimeline = parsed.data
+    })(),
   ])
 
   const rrwebLane = lanes.rrweb ?? []
@@ -75,5 +91,6 @@ export async function loadRecording(recordingId: string): Promise<LoadedRecordin
     timeAnchors: buildRrwebTimeMap(rrwebLane, manifest.t0Mono),
     sourcemapIndex,
     cpuProfile,
+    coverageTimeline,
   }
 }

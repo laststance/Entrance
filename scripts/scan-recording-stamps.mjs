@@ -9,8 +9,9 @@
 //
 // IMPORTANT — this is ONE methodology's view, kept for the report's boundary appendix, NOT
 // for regenerating §5. §5 of the deliverable is a hand-written INVARIANT section that pins
-// no exact count, precisely because the census is method-dependent (measured ~331–406 across
-// methods). Two reasons it is not well-defined: (a) blob universe — some SSR-HTML blobs are
+// no exact count, precisely because the census is method-dependent with no well-defined upper
+// bound (different methods observe different values). Two reasons it is not well-defined:
+// (a) blob universe — some SSR-HTML blobs are
 // orphaned build artifacts no longer referenced by the current network.jsonl; (b) this regex
 // is data-insp-path-ADJACENT, so it does NOT catch React-Compiler-HOISTED stamps
 // (const t = __codeInspectorPath || "src/…:L:C:Tag") that an adjacency-independent scan adds.
@@ -120,7 +121,7 @@ console.log('total stamps not in table:', notInTable.length, '| across files:', 
 console.log('  by carrier:', JSON.stringify(byCarrier))
 console.log('  rrweb leak (visible set — MUST be 0):', rrwebLeak.length)
 console.log('  Mode B coverage leak (executed set — MUST be 0):', execLeak.length)
-console.log('  CAVEAT: census is method-dependent (~331–406). This regex is data-insp-path-ADJACENT,')
+console.log('  CAVEAT: census is method-dependent with no well-defined upper bound. This regex is data-insp-path-ADJACENT,')
 console.log('  so React-Compiler-HOISTED stamps (const t = __codeInspectorPath || "src/…:L:C:Tag") are')
 console.log('  NOT counted; some SSR-HTML blobs are orphaned build artifacts. The invariant (leak=0),')
 console.log('  not the count, is what §5 relies on — and it holds against the wider hoisted superset too.')

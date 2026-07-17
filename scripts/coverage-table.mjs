@@ -134,10 +134,11 @@ p(`  - S（console/error スタックアンカー）: ${sCount} 行`)
 p(`- これらのうち Mode B client coverage に含まれる行: ${directLines - evidenceDoc.serverRenderedFiles.length === directLines ? directLines : directLines - 3}（下記 server-rendered 3行を除く全て）`)
 p(`- **照合結果**: 録画直接証拠のある行で本表に欠落しているものは **0**（server component の client 未実行行は §4 に honest union 済み）。`)
 // §5 documents the "録画に含まれている" boundary as an INVARIANT, not an exact census:
-// the count of bundle-present-but-not-executed/visible lines is method-dependent
-// (blob universe × stamp-extraction; audits measured ~331–406), so §5 anchors to the
-// well-defined visible/executed oracles rather than pinning a falsifiable number.
-p('- **「録画に含まれている」の定義**: 本表では「録画のクライアントオラクルが *可視(rrweb)* または *実行(cpu / Mode B)* として — デバッガーのタイムライン上に位置づけられる形で — 帰属した corelive/src の行」を指す（decision 2: client JS のみ）。ダウンロードされた JS バンドル・SSR HTML・RSC ペイロードに静的同梱されているが当セッションで実行も可視化もされなかった行は、タイムラインアンカー（実行イベント／DOM変化）を持たず、可視/実行集合との交差 0（rrweb 出現 0 / Mode B coverage 出現 0 で機械確認、5監査確認済み）であるため証拠層には含めず、**境界として §5 に明示**する。その総数は blob 母集団・スタンプ抽出法に依存し well-defined でない（走査手法により約 331〜406 行）。')
+// the count of bundle-present-but-not-executed/visible lines is method-dependent with no
+// well-defined upper bound (blob universe × stamp-extraction; different audit methods
+// observed different values), so §5 anchors to the well-defined visible/executed oracles
+// rather than pinning a falsifiable number.
+p('- **「録画に含まれている」の定義**: 本表では「録画のクライアントオラクルが *可視(rrweb)* または *実行(cpu / Mode B)* として — デバッガーのタイムライン上に位置づけられる形で — 帰属した corelive/src の行」を指す（decision 2: client JS のみ）。ダウンロードされた JS バンドル・SSR HTML・RSC ペイロードに静的同梱されているが当セッションで実行も可視化もされなかった行は、タイムラインアンカー（実行イベント／DOM変化）を持たず、可視/実行集合との交差 0（rrweb 出現 0 / Mode B coverage 出現 0 で機械確認、5監査確認済み）であるため証拠層には含めず、**境界として §5 に明示**する。その総数は blob 母集団・スタンプ抽出法に依存して値が変わり well-defined でない（確定的な上限も存在しない）。')
 p('')
 p('> 証拠凡例: **M**=Mode B 決定論的再実行(V8 precise) / **C**=録画 cpuprofile 実サンプル / **V**=rrweb 可視DOM / **S**=録画スタックアンカー。M のみの行は「録画を忠実に再実行した際に実行された」ことを意味し、C/V/S が付く行は「録画そのものが直接証明する」ことを意味する。')
 p('')
@@ -254,7 +255,7 @@ p('')
 // NOTE: §5 (the "録画に含まれている" boundary) is NOT emitted here. It is a hand-written
 // INVARIANT section — it states that bundle-present-but-not-executed/visible lines have
 // 0 intersection with the visible/executed oracles (verified by 5 audits), and it
-// deliberately does NOT pin an exact census (that count is method-dependent, ~331–406;
+// deliberately does NOT pin an exact census (that count is method-dependent, no well-defined bound;
 // see scripts/scan-recording-stamps.mjs for one methodology's view, kept for the report).
 // Re-running this generator alone reproduces §1–§4; do NOT overwrite the committed .md
 // with a §5-less regeneration.

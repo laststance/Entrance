@@ -41,16 +41,16 @@
 
 対応表は「録画に含まれている」を **録画の2つのクライアントオラクルが *可視(rrweb)* または *実行(cpu / Mode B)* として — デバッガーのタイムライン上に位置づけられる形で — 帰属した corelive/src の行**と定義する（decision 2: v1 は client JS のみ）。
 
-バンドル成果物（client JS チャンク・SSR HTML・RSC フライトペイロード）には、このどちらのオラクルにも現れない corelive/src の `data-insp-path` スタンプも**静的に同梱**されている（server-component の合成サイト、当セッション未描画のコンポーネント、未実行の条件分岐 JSX、ビルド時ホイストされたスタンプ 等）。これらについて対応表が保証する**不変条件**（5監査が独立に検証済み。別手法の 406 行上位集合に対しても成立）:
+バンドル成果物（client JS チャンク・SSR HTML・RSC フライトペイロード）には、このどちらのオラクルにも現れない corelive/src の `data-insp-path` スタンプも**静的に同梱**されている（server-component の合成サイト、当セッション未描画のコンポーネント、未実行の条件分岐 JSX、ビルド時ホイストされたスタンプ 等）。これらについて対応表が保証する**不変条件**（5監査が独立に検証済み。走査手法を最大限広げた上位集合に対しても成立）:
 
 > **バンドル同梱のみの行 ∩ 可視集合（rrweb 179）= 0、∩ 実行集合（Mode B 6125 / cpu 54）= 0。**
 > すなわち「バンドルに同梱されているだけで、当セッションに実行または可視化された行」は **1行も存在しない**。ゆえに §1–§4 の完全性は本境界の影響を受けない。
 
-**この境界の総数は well-defined ではない**（blob 母集団 × スタンプ抽出法に依存し、独立監査は ~331〜406 行と手法依存で測定）。だからこそ対応表は「録画に含まれている」を、一意に定義できる可視/実行オラクルにアンカーする。
+**この境界の総数は well-defined ではない**（blob 母集団 × スタンプ抽出法に依存し、確定的な上限も存在しない — 独立監査は手法ごとに異なる値を観測した）。だからこそ対応表は「録画に含まれている」を、一意に定義できる可視/実行オラクルにアンカーする。
 
 ## 5. 境界の per-file 参考リスト（1手法の観測値 — method-dependent）
 
-以下は `scripts/scan-recording-stamps.mjs`（**data-insp-path 隣接正規表現 × 全 blob** という1手法）が拾った「バンドル同梱だが当セッション未実行・未可視」の corelive/src スタンプ **337 行 / 37 ファイル** の全数である。**これは確定的な全数リストではなく、1手法の観測値**である（別手法では React Compiler ホイストスタンプが加わり ~406/45、現行 network.jsonl 参照 blob のみに絞ると ~331/35 になる）。いずれの手法でも **rrweb 出現 = 0 / Mode B coverage 出現 = 0**（＝可視/実行集合との交差 0）は保たれる。
+以下は `scripts/scan-recording-stamps.mjs`（**data-insp-path 隣接正規表現 × 全 blob** という1手法）が拾った「バンドル同梱だが当セッション未実行・未可視」の corelive/src スタンプ **337 行 / 37 ファイル** である。**これは確定的な全数リストではなく、1手法の観測値**である（別手法では React Compiler ホイストスタンプが加わり ~406/45、現行 network.jsonl 参照 blob のみに絞ると ~331/35、SSR チャンクの sourcemap 内 `sourcesContent` まで含めるとさらに増える〔~409〕— **確定的な上限は存在しない**）。いずれの手法でも **rrweb 出現 = 0 / Mode B coverage 出現 = 0**（＝可視/実行集合との交差 0）は保たれる。
 
 ### Class A — server-render 出力（RSC flight + SSR HTML）: 17 行 / 4 ファイル
 
@@ -61,7 +61,7 @@ src/app/page.tsx               : 17,18,19,21,24                 [SSR HTML]
 src/components/flex.tsx        : 21                             [SSR HTML]
 ```
 
-`layout.tsx` / `(main)/layout.tsx` の provider 合成サイト（49,62–68,18,19）で合成される 8つの corelive client コンポーネントの実行コードは、**全て対応表に存在する**（ClerkProvider・Toaster は外部ライブラリのため対象外）。＝合成サイト行自体は非掲載でも、そこで起きる client 挙動は対応表から漏れていない。
+`layout.tsx` / `(main)/layout.tsx` の provider 合成サイト（49,62–68,18,19）で合成される 9つの corelive client コンポーネントの実行コードは、**全て対応表に存在する**（真に外部なのは `<ClerkProvider>` 1件のみ。`<Toaster>` は `import { Toaster } from '@/components/ui/sonner'` — corelive の `src/components/ui/sonner.tsx` ラッパーで、20行 実行・対応表に存在）。＝合成サイト行自体は非掲載でも、そこで起きる client 挙動は対応表から漏れていない。
 
 ### Class B — client JS バンドルの静的 JSX（jschunk）: 320 行 / 33 ファイル
 
@@ -103,14 +103,14 @@ ui/tooltip.tsx         : 26,45,55
 lib/export-day-as-image.ts: 146,164
 ```
 
-> 注: 上記はホイストスタンプ（`const t = __codeInspectorPath || "src/…:L:C:Tag"`、data-insp-path 非隣接）を含まないため、ui/alert-dialog.tsx・ui/card.tsx・ui/form.tsx 等の一部は**この手法では現れない**。それらを加える手法では ~406/45 になる。どちらの母集団でも「∩ 実行/可視 = 0」は不変。
+> 注: 上記はホイストスタンプ（`const t = __codeInspectorPath || "src/…:L:C:Tag"`、data-insp-path 非隣接）を含まないため、ui/alert-dialog.tsx・ui/card.tsx・ui/form.tsx 等の一部は**この手法では現れない**。それらを加える手法では ~406/45、SSR チャンクの sourcemap まで含めるとさらに増える。いずれの母集団でも「∩ 実行/可視 = 0」は不変。
 
 ## 6. 5名の独立サブエージェント監査
 
 （**確定待ち — 最終ラウンド re-audit 実行中。5/5 完璧 確定後にここを更新**）
 
 - 第1ラウンド: §1–§4 について 5/5 が「完璧・バイト不変・binding rule 0 gaps」と評価。
-- 第2ラウンド以降: §5（境界節）の**列挙精度**に不完璧指摘 → 総数が構造的に方法依存（~331–406）と判明したため、§5 を確定 census から**不変条件**に collapse（commit `f8bdb10`）。§1–§4 データ行はバイト不変。
+- 第2ラウンド以降: §5（境界節）の**列挙精度**に不完璧指摘 → 総数が構造的に方法依存で well-defined でない（走査手法ごとに異なる値・確定的な上限なし）と判明したため、§5 を確定 census から**不変条件**に collapse（commit `f8bdb10`）。§1–§4 データ行はバイト不変。
 - 最終ラウンド: 提出物のバイトに対し再監査中。
 
 ## 7. 最終確認のお願い

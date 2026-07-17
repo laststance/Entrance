@@ -22,14 +22,18 @@ export function CodePanel({
   anchors,
   profileTimeline,
   resolver,
+  overrideFrames,
 }: {
   anchors: CodeAnchor[]
   profileTimeline: ProfileTimeline | null
   resolver: SourceResolver
+  /** Mode B paused stack — while set it outranks playhead-derived stacks. */
+  overrideFrames?: CodeFrame[] | null
 }) {
   const playhead = useSyncExternalStore(playheadStore.subscribe, playheadStore.getSnapshot)
 
-  // Line-exact beats function-level right after an anchor fires (decision 3).
+  // Line-exact beats function-level right after an anchor fires (decision 3);
+  // a Mode B pause (full line precision) beats both.
   const anchor = anchorAt(anchors, playhead.tMonoOffsetMs)
   const anchorIsFresh =
     anchor !== null &&
@@ -37,8 +41,15 @@ export function CodePanel({
   const profileStack = profileTimeline
     ? profileStackAt(profileTimeline, playhead.tMonoOffsetMs)
     : null
-  const activeFrames = anchorIsFresh ? anchor.frames : (profileStack ?? anchor?.frames ?? null)
-  const headerLabel = anchorIsFresh ? anchor.label : profileStack ? '実行中' : (anchor?.label ?? '')
+  const activeFrames =
+    overrideFrames ?? (anchorIsFresh ? anchor.frames : (profileStack ?? anchor?.frames ?? null))
+  const headerLabel = overrideFrames
+    ? '一時停止中'
+    : anchorIsFresh
+      ? anchor.label
+      : profileStack
+        ? '実行中'
+        : (anchor?.label ?? '')
 
   // Resolve only when the stack identity changes (profile stacks are cached
   // arrays, so 100Hz playhead notifies dedupe to sample boundaries). The label
@@ -49,18 +60,24 @@ export function CodePanel({
   } | null>(null)
   const lastFramesRef = useRef<CodeFrame[] | null>(null)
   const requestTicketRef = useRef(0)
+  const isPauseOverride = Boolean(overrideFrames)
   useEffect(() => {
     if (!activeFrames || lastFramesRef.current === activeFrames) return
     lastFramesRef.current = activeFrames
     const ticket = requestTicketRef.current + 1
     requestTicketRef.current = ticket
-    void resolver.resolveAppFrame(activeFrames).then((location) => {
-      // Keep the previous source on screen when this stack has no app frames.
+    void (async () => {
+      // A pause must show its stop location even inside a library listener;
+      // playhead-driven stacks keep the app-only filter (no node_modules jumps).
+      const location =
+        (await resolver.resolveAppFrame(activeFrames)) ??
+        (isPauseOverride ? await resolver.resolveTopFrame(activeFrames) : null)
+      // Keep the previous source on screen when nothing resolved.
       if (requestTicketRef.current === ticket && location) {
         setResolved({ location, label: headerLabel })
       }
-    })
-  }, [activeFrames, resolver, headerLabel])
+    })()
+  }, [activeFrames, resolver, headerLabel, isPauseOverride])
 
   if (!resolved) {
     return (

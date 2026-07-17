@@ -51,3 +51,25 @@ export const STORAGE_QUOTA_BYTES = 5_000_000_000
 export const STORAGE_QUOTA_WARN_RATIO = 0.8
 /** Free-disk probe cadence in status ticks (10 ticks × 500ms = every 5s). */
 export const DISK_CHECK_EVERY_N_TICKS = 10
+
+/** Mode B re-execution (P3): hidden-window boot + input pacing + pause snapshot caps. */
+export const REDEBUG_LOAD_TIMEOUT_MS = 15000
+/** Gap between re-dispatched inputs so the page's fetches/renders settle (spike #2 policy v1). */
+export const REDEBUG_INPUT_SETTLE_MS = 150
+/** At record time the page was hydrated long before the first input, but a
+ * re-execution clicks right after load — too early and framework links degrade
+ * to full navigations the recording never saw. Poll the click target for its
+ * React fiber expando; non-React pages just wait out the budget. */
+export const REDEBUG_HYDRATION_TIMEOUT_MS = 8000
+export const REDEBUG_HYDRATION_POLL_INTERVAL_MS = 250
+/** Inputs re-pace by their recorded gaps, capped so a slow original session replays quickly. */
+export const REDEBUG_INPUT_MAX_WAIT_MS = 2000
+/** Debugger.pause only fires on the next JS task — after this, poke the page once. */
+export const REDEBUG_PAUSE_FALLBACK_MS = 1500
+export const REDEBUG_MAX_CALL_FRAMES = 20
+export const REDEBUG_MAX_SCOPE_VARIABLES = 40
+/** Fixed Math.random seed — same value every re-execution, by design. */
+export const REDEBUG_RANDOM_SEED = 0x12345678
+/** Fallback viewport when the bundle has no snapshot (pre-P1 recordings). */
+export const REDEBUG_WINDOW_WIDTH_PX = 1280
+export const REDEBUG_WINDOW_HEIGHT_PX = 720

@@ -1,15 +1,27 @@
 import { build } from 'esbuild'
 
-// Page-agent bundle (spec decision 23): a single IIFE injected into the recorded
-// page via CDP (addScriptToEvaluateOnNewDocument + Runtime.evaluate). Built
-// outside electron-vite because it targets the browser page, not main/renderer.
-await build({
-  entryPoints: ['src/agent/index.ts'],
-  outfile: 'out/agent/page-agent.js',
+// Injected-code bundles (spec decision 23): everything that runs inside a
+// target page is built here, outside electron-vite, because it targets the
+// browser page, not main/renderer. Two artifacts:
+//  - page-agent.js     record-mode agent (rrweb + input lane + ready binding)
+//  - redebug-shims.js  Mode B determinism shims (clock/random pin, storage seed)
+const shared = {
   bundle: true,
   format: 'iife',
   platform: 'browser',
   target: 'chrome120',
   define: { 'process.env.NODE_ENV': '"production"' },
   logLevel: 'info',
+}
+
+await build({
+  ...shared,
+  entryPoints: ['src/agent/index.ts'],
+  outfile: 'out/agent/page-agent.js',
+})
+
+await build({
+  ...shared,
+  entryPoints: ['src/agent/redebug-shims.ts'],
+  outfile: 'out/agent/redebug-shims.js',
 })

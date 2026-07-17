@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import type { RedebugStatus, RedebugStepRequest, StartRedebugRequest } from './redebug'
+
 /**
  * Control-plane IPC contract shared by main/preload/renderer (spec decision 12).
  * Why: every invoke handler must .parse() its payload so a compromised renderer
@@ -167,6 +169,9 @@ export const IPC = {
   listGroups: 'groups:list',
   createGroup: 'groups:create',
   storageUsage: 'storage:usage',
+  redebugStart: 'redebug:start',
+  redebugStep: 'redebug:step',
+  redebugStop: 'redebug:stop',
 } as const
 
 /** main → renderer push channels. */
@@ -175,6 +180,7 @@ export const PUSH = {
   targetGone: 'target:gone',
   recStatus: 'rec:status',
   recAutoStopped: 'rec:autoStopped',
+  redebugStatus: 'redebug:status',
 } as const
 
 /** API surface exposed on window.entrance by the preload bridge. */
@@ -193,8 +199,13 @@ export interface EntranceApi {
   listGroups: () => Promise<GroupSummary[]>
   createGroup: (req: CreateGroup) => Promise<{ ok: boolean; groupId?: string; error?: string }>
   storageUsage: () => Promise<StorageUsage>
+  /** Mode B: start re-execution of a recording in a hidden window (decision 4). */
+  redebugStart: (req: StartRedebugRequest) => Promise<{ ok: boolean; error?: string }>
+  redebugStep: (req: RedebugStepRequest) => Promise<{ ok: boolean }>
+  redebugStop: () => Promise<{ ok: boolean }>
   onCdpEvent: (cb: (ev: CdpEventSummary) => void) => () => void
   onTargetGone: (cb: () => void) => () => void
   onRecStatus: (cb: (status: RecStatus) => void) => () => void
   onRecAutoStopped: (cb: (payload: { reason: string; recordingId: string }) => void) => () => void
+  onRedebugStatus: (cb: (status: RedebugStatus) => void) => () => void
 }

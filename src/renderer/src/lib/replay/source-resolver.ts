@@ -43,6 +43,8 @@ export interface ResolvedCodeLocation {
 
 export interface SourceResolver {
   resolveAppFrame: (frames: CodeFrame[]) => Promise<ResolvedCodeLocation | null>
+  /** Mode B pause fallback: first resolvable frame, vendor sources allowed. */
+  resolveTopFrame: (frames: CodeFrame[]) => Promise<ResolvedCodeLocation | null>
 }
 
 /**
@@ -112,6 +114,15 @@ export function createSourceResolver(
       for (const frame of frames) {
         const location = await resolveFrame(frame)
         if (location && isAppSourcePath(location.sourcePath)) return location
+      }
+      return null
+    },
+    async resolveTopFrame(frames) {
+      // Vendor allowed — a Mode B pause must show WHERE it stopped even when
+      // the trap landed inside a library listener (app-frame filter finds none).
+      for (const frame of frames) {
+        const location = await resolveFrame(frame)
+        if (location) return location
       }
       return null
     },

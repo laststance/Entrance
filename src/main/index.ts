@@ -6,6 +6,7 @@ import { openDatabase } from './db'
 import { registerIpcHandlers } from './ipc'
 import { registerEntranceProtocolHandler, registerEntranceScheme } from './protocol'
 import { RecordingManager } from './recorder/recording'
+import { RedebugManager } from './redebug/redebug-manager'
 import { recoverAbandonedRecordings } from './recorder/recovery'
 
 /**
@@ -17,6 +18,7 @@ let mainWindow: BrowserWindow | null = null
 
 // One manager per app — owns the attached target session and the active recording.
 const recordingManager = new RecordingManager(() => mainWindow)
+const redebugManager = new RedebugManager(() => mainWindow)
 
 // Dev-only: expose a debugging port so external QA tooling (electron MCP / Playwright)
 // can drive Entrance's OWN renderer. Never attach external clients to a recorded
@@ -27,6 +29,14 @@ if (!app.isPackaged) {
 
 // The entrance:// bulk read plane must claim its privileges before app ready (decision 12).
 registerEntranceScheme()
+
+/**
+ * QA background mode (`pnpm dev:bg`): the app never takes the foreground —
+ * accessory activation policy (no Dock icon, no focus steal) and the window
+ * stays hidden while still painting — so CDP-driven QA can run while the
+ * developer keeps using the machine. CDP needs no OS focus or visibility.
+ */
+const isQaBackgroundMode = process.env.ENTRANCE_QA_BACKGROUND === '1'
 
 /** Origins the embedded target may navigate to — local dev servers only. */
 function isLocalDevUrl(rawUrl: string): boolean {
@@ -59,10 +69,14 @@ function createWindow(): void {
       nodeIntegration: false,
       // The recorded target is hosted in a <webview> behind the EmbeddedTarget abstraction (spec decision 5).
       webviewTag: true,
+      // Hidden windows throttle rAF/timers, which would stall replay QA.
+      backgroundThrottling: !isQaBackgroundMode,
     },
   })
 
-  mainWindow.once('ready-to-show', () => mainWindow?.show())
+  mainWindow.once('ready-to-show', () => {
+    if (!isQaBackgroundMode) mainWindow?.show()
+  })
   mainWindow.on('closed', () => {
     // Finalizes any active recording before the session spool is dropped.
     void recordingManager.shutdownSession()
@@ -106,11 +120,12 @@ app.on('web-contents-created', (_ev, contents) => {
 })
 
 void app.whenReady().then(() => {
+  if (isQaBackgroundMode && process.platform === 'darwin') app.setActivationPolicy('accessory')
   openDatabase()
   // Seal any recording the previous process died holding (endReason: app-crash-recovered).
   recoverAbandonedRecordings()
   registerEntranceProtocolHandler()
-  registerIpcHandlers(recordingManager)
+  registerIpcHandlers(recordingManager, redebugManager)
   createWindow()
 
   app.on('activate', () => {

@@ -2,8 +2,9 @@ import { memo, useMemo, useState, useSyncExternalStore } from 'react'
 
 import { Virtuoso } from 'react-virtuoso'
 
-import type { CodeAnchor } from '@shared/code-anchors'
+import type { CodeAnchor, CodeFrame } from '@shared/code-anchors'
 import type { ProfileTimeline } from '@shared/cpuprofile-timeline'
+import type { ReplayLaneEvent } from '@shared/replay'
 import type { TranscriptItem } from '@shared/transcript-items'
 import { transcriptIndexAt } from '@shared/transcript-items'
 
@@ -12,6 +13,7 @@ import type { SourceResolver } from '../lib/replay/source-resolver'
 import { formatRecClock } from '../lib/format-rec-clock'
 import { playheadStore } from '../lib/replay/playhead-store'
 import { CodePanel } from './CodePanel'
+import { RedebugPanel } from './RedebugPanel'
 
 /**
  * Mock 1a right inspector — Sources (sourcemap code panel) / Console / Network
@@ -39,15 +41,23 @@ export function DebugSidePanel({
   anchors,
   profileTimeline,
   resolver,
+  recordingId,
+  t0Mono,
+  inputLane,
   onSeekAction,
 }: {
   items: TranscriptItem[]
   anchors: CodeAnchor[]
   profileTimeline: ProfileTimeline | null
   resolver: SourceResolver
+  recordingId: string
+  t0Mono: number
+  inputLane: ReplayLaneEvent[]
   onSeekAction: (tMonoOffsetMs: number) => void
 }) {
   const [tab, setTab] = useState<DebugTab>('sources')
+  // Mode B paused stack overrides the playhead-driven code view (decision 3).
+  const [pauseFrames, setPauseFrames] = useState<CodeFrame[] | null>(null)
 
   return (
     <div className="flex h-full min-h-0 flex-col border-l border-border">
@@ -68,7 +78,21 @@ export function DebugSidePanel({
         ))}
       </div>
       {tab === 'sources' ? (
-        <CodePanel anchors={anchors} profileTimeline={profileTimeline} resolver={resolver} />
+        <>
+          <RedebugPanel
+            recordingId={recordingId}
+            t0Mono={t0Mono}
+            inputLane={inputLane}
+            anchors={anchors}
+            onPauseFramesChangeAction={setPauseFrames}
+          />
+          <CodePanel
+            anchors={anchors}
+            profileTimeline={profileTimeline}
+            resolver={resolver}
+            overrideFrames={pauseFrames}
+          />
+        </>
       ) : (
         <DebugLaneTab tab={tab} items={items} onSeekAction={onSeekAction} />
       )}

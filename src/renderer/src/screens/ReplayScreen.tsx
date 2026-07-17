@@ -181,6 +181,9 @@ function ReplayLoaded({ loadPromise }: { loadPromise: Promise<LoadedRecording> }
             anchors={codeAnchors}
             profileTimeline={profileTimeline}
             resolver={sourceResolver}
+            recordingId={recording.manifest.recordingId}
+            t0Mono={recording.manifest.t0Mono}
+            inputLane={recording.lanes.input ?? []}
             onSeekAction={seekTo}
           />
         </Panel>

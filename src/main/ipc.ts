@@ -12,6 +12,7 @@ import {
   updateRecordingMetaSchema,
   type StorageUsage,
 } from '@shared/ipc'
+import { redebugStepSchema, startRedebugSchema } from '@shared/redebug'
 
 import { STORAGE_QUOTA_BYTES } from './constants'
 import {
@@ -26,6 +27,7 @@ import {
 import { detectServers } from './detector'
 import { recordingDir, recordingsRootDir } from './paths'
 import type { RecordingManager } from './recorder/recording'
+import type { RedebugManager } from './redebug/redebug-manager'
 import { directorySizeBytes } from './utils/directory-size-bytes'
 
 /**
@@ -33,7 +35,10 @@ import { directorySizeBytes } from './utils/directory-size-bytes'
  * its payload before any privileged work. Called once from main/index.ts after
  * the RecordingManager exists.
  */
-export function registerIpcHandlers(recordingManager: RecordingManager): void {
+export function registerIpcHandlers(
+  recordingManager: RecordingManager,
+  redebugManager: RedebugManager,
+): void {
   ipcMain.handle(IPC.detectServers, async () => {
     // Never list Entrance's own renderer dev server (dev-mode self-detection).
     const ownRendererPort = process.env.ELECTRON_RENDERER_URL
@@ -118,4 +123,18 @@ export function registerIpcHandlers(recordingManager: RecordingManager): void {
       recordingCount: countRecordings(),
     }
   })
+
+  ipcMain.handle(IPC.redebugStart, async (_ev, raw: unknown) => {
+    const parsed = startRedebugSchema.safeParse(raw)
+    if (!parsed.success) return { ok: false, error: 'invalid redebug request' }
+    return redebugManager.start(parsed.data)
+  })
+
+  ipcMain.handle(IPC.redebugStep, async (_ev, raw: unknown) => {
+    const parsed = redebugStepSchema.safeParse(raw)
+    if (!parsed.success) return { ok: false }
+    return redebugManager.step(parsed.data)
+  })
+
+  ipcMain.handle(IPC.redebugStop, async () => redebugManager.stop())
 }

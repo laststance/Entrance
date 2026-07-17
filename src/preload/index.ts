@@ -13,6 +13,7 @@ import {
   type SearchRecordings,
   type UpdateRecordingMeta,
 } from '@shared/ipc'
+import type { RedebugStatus, RedebugStepRequest, StartRedebugRequest } from '@shared/redebug'
 
 /**
  * Context-bridged control-plane API (spec decision 12). Only these typed calls
@@ -41,11 +42,15 @@ const api: EntranceApi = {
   listGroups: () => ipcRenderer.invoke(IPC.listGroups),
   createGroup: (req: CreateGroup) => ipcRenderer.invoke(IPC.createGroup, req),
   storageUsage: () => ipcRenderer.invoke(IPC.storageUsage),
+  redebugStart: (req: StartRedebugRequest) => ipcRenderer.invoke(IPC.redebugStart, req),
+  redebugStep: (req: RedebugStepRequest) => ipcRenderer.invoke(IPC.redebugStep, req),
+  redebugStop: () => ipcRenderer.invoke(IPC.redebugStop),
   onCdpEvent: (cb) => onPush<CdpEventSummary>(PUSH.cdpEvent, cb),
   onTargetGone: (cb) => onPush<undefined>(PUSH.targetGone, () => cb()),
   onRecStatus: (cb) => onPush<RecStatus>(PUSH.recStatus, cb),
   onRecAutoStopped: (cb) =>
     onPush<{ reason: string; recordingId: string }>(PUSH.recAutoStopped, cb),
+  onRedebugStatus: (cb) => onPush<RedebugStatus>(PUSH.redebugStatus, cb),
 }
 
 contextBridge.exposeInMainWorld('entrance', api)

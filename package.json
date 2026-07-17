@@ -11,6 +11,7 @@
   "scripts": {
     "build:agent": "node scripts/build-agent.mjs",
     "dev": "node scripts/build-agent.mjs && electron-vite dev --watch",
+    "dev:bg": "ENTRANCE_QA_BACKGROUND=1 pnpm dev",
     "build": "node scripts/build-agent.mjs && electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc -b --noEmit",

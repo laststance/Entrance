@@ -519,18 +519,28 @@ export class RedebugSession {
     const url = params.request?.url ?? ''
     if (this.collector) console.log('[harvest] paused:', method, params.resourceType ?? '', url.slice(0, 110))
 
-    // Telemetry beacons are blocked whole (never fulfilled, never live):
-    // fulfilling a CORS-preflighted exchange from the interceptor is what
-    // crashed the browser process (CrBrowserMain SIGSEGV on freed memory —
-    // the preflight controller outlives its request), and the page treats a
-    // failed batch as fire-and-forget, so blocking is invisible to the app.
+    // Replay-only noise (analytics beacons, dev-overlay symbolication) is
+    // blocked WITHOUT a divergence: these fire only because Mode B runs a live
+    // dev build, the recording never captured them, and the page treats each
+    // as fire-and-forget. Blocking telemetry additionally dodges a browser-
+    // process crash — fulfilling its CORS-preflighted exchange from the
+    // interceptor faulted CrBrowserMain (the preflight controller outlived its
+    // request).
     let hostname = ''
+    let pathname = ''
     try {
-      hostname = new URL(url).hostname
+      const parsed = new URL(url)
+      hostname = parsed.hostname
+      pathname = parsed.pathname
     } catch {
       /* non-URL scheme (about:, data:) — fall through to the matcher */
     }
-    if (/(^|\.)clerk-telemetry\.com$/.test(hostname)) {
+    const isTelemetryBeacon = /(^|\.)clerk-telemetry\.com$/.test(hostname)
+    // Next dev error-overlay endpoints: stack-frame symbolication + editor
+    // launch. Pure tooling, never corelive/src, absent from every recording.
+    const isDevOverlayEndpoint =
+      pathname === '/__nextjs_original-stack-frames' || pathname === '/__nextjs_launch-editor'
+    if (isTelemetryBeacon || isDevOverlayEndpoint) {
       await send('Fetch.failRequest', {
         requestId: params.requestId,
         errorReason: 'BlockedByClient',

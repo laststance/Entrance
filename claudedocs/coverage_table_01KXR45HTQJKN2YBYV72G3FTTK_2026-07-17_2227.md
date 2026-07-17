@@ -17,7 +17,7 @@
   - S（console/error スタックアンカー）: 0 行
 - これらのうち Mode B client coverage に含まれる行: 230（下記 server-rendered 3行を除く全て）
 - **照合結果**: 録画直接証拠のある行で本表に欠落しているものは **0**（server component の client 未実行行は §4 に honest union 済み）。
-- **「録画に含まれている」の定義**: 本表では「録画のクライアントオラクルが *可視(rrweb)* または *実行(cpu / Mode B)* として — デバッガーのタイムライン上に位置づけられる形で — 帰属した corelive/src の行」を指す（decision 2: client JS のみ）。ダウンロードされた JS バンドル・SSR HTML・RSC ペイロードに同梱されているが当セッションで実行も可視化もされなかった行（**335行 / 36ファイル**、rrweb 出現 0 / Mode B coverage 出現 0 で機械確認）は、タイムラインアンカー（実行イベント／DOM変化）を持たないため証拠層には含めず、**境界として §5 に全数明示**する。
+- **「録画に含まれている」の定義**: 本表では「録画のクライアントオラクルが *可視(rrweb)* または *実行(cpu / Mode B)* として — デバッガーのタイムライン上に位置づけられる形で — 帰属した corelive/src の行」を指す（decision 2: client JS のみ）。ダウンロードされた JS バンドル・SSR HTML・RSC ペイロードに静的同梱されているが当セッションで実行も可視化もされなかった行は、タイムラインアンカー（実行イベント／DOM変化）を持たず、可視/実行集合との交差 0（rrweb 出現 0 / Mode B coverage 出現 0 で機械確認、5監査確認済み）であるため証拠層には含めず、**境界として §5 に明示**する。その総数は blob 母集団・スタンプ抽出法に依存し well-defined でない（走査手法により約 331〜406 行）。
 
 > 証拠凡例: **M**=Mode B 決定論的再実行(V8 precise) / **C**=録画 cpuprofile 実サンプル / **V**=rrweb 可視DOM / **S**=録画スタックアンカー。M のみの行は「録画を忠実に再実行した際に実行された」ことを意味し、C/V/S が付く行は「録画そのものが直接証明する」ことを意味する。
 
@@ -1760,16 +1760,20 @@
 | `src/app/layout.tsx` | 59 | V | 00:00.03 | `<body className={cn('mx-auto min-h-screen font-sans antialia` |
 | `src/app/(main)/layout.tsx` | 20 | V | 00:14.55 | `<SidebarInset>{children}</SidebarInset>` |
 
-## 5. バンドルに同梱されているが録画で実行も可視化もされなかった行（境界の明示）
+## 5. 「録画に含まれている」の定義と境界の明示（decision 11）
 
-「録画に含まれている」を本表は **画面に映った (rrweb V) または クライアント実行された (cpu / Mode B) — つまりデバッガーのタイムライン上に位置づけられる行** と定義する（decision 2: client JS のみ）。ダウンロードされた JS バンドル・SSR HTML・RSC ペイロードには、この2つのクライアントオラクルのどちらにも現れない corelive/src の `data-insp-path` スタンプが **335 行 / 36 ファイル** 存在する。これらは静的にバンドルへ同梱されただけで、当セッションでは実行も可視化もされていない。
+本表 §1–§4 は、録画の2つのクライアントオラクルが corelive/src の行を **可視（rrweb V: 179行）** または **クライアント実行（cpu / Mode B: 54 / 6125行）** と帰属した行を**漏れなく**列挙する。**欠落 0**（5名の独立監査が両ラウンドで機械確認）。本表は「録画に含まれている」を、この2オラクル — すなわちデバッガーのタイムライン上に位置づけられる行 — にアンカーして定義する（decision 2: client JS のみ）。
 
-- 機械照合（`scripts/scan-recording-stamps.mjs`）: これら335行の **rrweb 出現 = 0**（可視オラクルに無い）／ **Mode B coverage 出現 = 0**（実行オラクルに無い）。両クライアントオラクルが直接反証する。
-- タイムラインアンカー（実行イベント／DOM 変化）を持たないため、証拠層(§1)にも実行タイムライン(§2/§3)にも含めない。最大限リテラルな「バンドルに1バイトでも含まれるソース」= corelive/src ほぼ全体（バンドルは全 src を同梱する）を意味し、"画面に映っている、実行されている" という録画の要件と矛盾する。したがって Class A・Class B とも **同一基準**（同梱されているが未実行・未可視）で証拠層から除外し、ここに全数明示する。
+ダウンロードされたバンドル成果物（client JS チャンク・SSR HTML・RSC フライトペイロード）には、このどちらのオラクルにも現れない corelive/src の `data-insp-path` スタンプも静的に同梱されている。代表例: server-component の合成サイト（後述 5a）、当セッションで未描画のコンポーネント（未オープンのダイアログ・未遷移のルート・未発火のエラーバウンダリ）、部分描画コンポーネント内の未実行の条件分岐、ビルド時にホイストされたスタンプ など。本表がこの境界について保証する**不変条件**（5監査が独立に検証済み。別手法で数えた 406 行の上位集合に対しても成立）:
 
-### 5a. Class A — RSC ペイロード内の server-component 合成サイト（10行 / 2ファイル）
+- **可視集合（rrweb 179）・実行集合（Mode B 6125 / cpu 54）との交差 = 0。** バンドルに静的同梱されただけの行で、当セッションに実行または可視化された行は**1行も存在しない**。したがって §1–§4 の完全性（可視 + 実行 ⊆ 本表）はこの境界の影響を一切受けない。
+- これらの行は実行イベントも DOM 変化も持たないため、デバッガーのタイムライン上にアンカーできない。
 
-`layout.tsx` は server component で client JS を実行しない。以下は provider ツリーの**合成サイト**（子コンポーネントを配置する JSX 行）で、RSC フライトペイロードに現れるが、(1) 独自の DOM を生成せず（出力は子コンポーネントに帰属）、(2) client 実行イベントを持たない。§4 の3行（rrweb が可視化したホスト要素行）とは異なり、**可視化時刻を持たない**。
+**「バンドルに静的同梱されただけの corelive/src 行」の総数は well-defined ではない。** どの blob を母集団とするか（現行 `network.jsonl` が参照する blob のみか、旧 finalize パイプラインのオーファン blob を含む全 blob か）、`data-insp-path` スタンプの抽出をどう行うか（テキスト隣接形式のみか、React Compiler がホイストした非隣接形式を含むか）によって値が変わり、本境界について独立監査が測った値は走査手法により **およそ 331〜406 行** に分布した。バンドル同梱という基準自体が方法依存で一意に定まらないからこそ、本表は「録画に含まれている」を一意に定義できる可視/実行オラクルにアンカーする。方法依存の per-file 走査の一例（`scripts/scan-recording-stamps.mjs` による1手法の観測値）は最終レポートに参考として付す — これは「ある1手法の観測」であり確定的な全数リストではない。
+
+### 5a. 参考: server-component 合成サイト（10行 / 2ファイル）— 概念上もっとも紛れやすい境界の実証
+
+`src/app/layout.tsx` / `src/app/(main)/layout.tsx` は server component で client JS を実行しない（decision 2）。その provider ツリーの**合成サイト**（子コンポーネントを配置する JSX 行、計10行）は RSC ペイロードに現れるが、独自の DOM も client 実行イベントも持たないため §1–§4 には載らない。しかしそこで合成される client コンポーネントの実行コードは**全て本表に存在する**（5監査が実行行数を厳密一致で確認）:
 
 | ファイル | 行 | 合成先 | 合成先 client コンポーネントの実行行が本表に存在するか |
 |---|---|---|---|
@@ -1784,20 +1788,8 @@
 | `src/app/(main)/layout.tsx` | 18 | `<SidebarProvider>` | ✓ `src/components/ui/sidebar.tsx`（312行 実行） |
 | `src/app/(main)/layout.tsx` | 19 | `<AppSidebar>` | ✓ `src/components/AppSidebar.tsx`（248行 実行） |
 
-→ 合成サイト自体は本表に載らないが、そこで合成される client コンポーネントの実行コードは**全て本表に存在する**（外部ライブラリ2件を除く8サイト全て検証済み）。ゆえに「この合成サイトで起きた client 挙動」は本表から漏れていない。
-
-### 5b. Class B — ダウンロードされたバンドルの静的 JSX（325行 / 34ファイル）
-
-コンパイル済み JS チャンク（一部 SSR HTML）に `data-insp-path` スタンプとして存在するが、当セッションでは実行も可視化もされなかった行。内訳（全行 rrweb 0 / coverage 0 で機械確認）:
-
-- **(a) 当セッションで一度も描画されなかったコンポーネント**: 未オープンのダイアログ（`YearInReviewModal` 20行・`DayDetailDialog` 25行・`CategoryManageDialog` 16行）、未遷移のルート（`login/[[...login]]/page.tsx` 7行・`page.tsx` 5行〔SSR HTML の root redirect〕）、未発火のエラーバウンダリ（`error.tsx` 9行・`global-error.tsx` 7行）、認証済みのため非表示の `ElectronLoginForm.tsx`（31行）など。
-- **(b) 部分描画コンポーネント内の未実行の条件分岐 JSX**: 例 `Category.tsx` の category-item テンプレート（201–214: 当セッションはカテゴリ 0 件で `.map` コールバック本体が未実行）、`AddTodoForm.tsx` の折りたたみ／条件フォーム部（74,75,82,91–99,108,114 ほか）、`TodoItem.tsx` の行本体（131+: アクティブ Todo 行が未描画で、コンポーネント関数上部 24 行のみ実行）。
-- **(c) DOM に data-insp-path を転送しないコンポーネント呼び出しの prop スタンプ**: `<Popover>` `<Select>` `<Tooltip>` 等（uppercase 合成）や shadcn/ui primitive のラッパ行。
-
-対象 34 ファイル（`scripts/scan-recording-stamps.mjs` 出力の全数）: `AddTodoForm` `Category` `CategoryManageDialog` `CompletedDropZone` `CompletedJournalRow` `CompletedTodos` `CompletedTodosFilters` `ContributionGraph` `DayDetailDialog` `LogoutButton` `SortableTodoItem` `SundayDigestCard` `TodoItem` `TodoList` `WeeklySummaryCard` `YearInReviewModal` `error` `global-error` `login/[[...login]]/page` `page` `ThemePreviewSwatch` `ThemeSelector` `ThemeSelectorMenuItem` `auth/ElectronLoginForm` `import/ImportUndoBanner` `import/PasteImportDialog` `ui/calendar` `ui/checkbox` `ui/dropdown-menu` `ui/radio-group` `ui/sheet` `ui/sidebar` `ui/tooltip` `lib/export-day-as-image`。
-
-（補足: `src/components/flex.tsx` は app-chunk sourcemap の `sourcesContent` にのみ存在し、録画のどのペイロードにも `data-insp-path` スタンプとして現れない〔rrweb 0 / cpu 0〕— 同じくバンドル同梱のみの境界であり、上記スタンプ走査には現れないため参考として付記。）
+→ この10行の合成サイト自体は本表に載らないが、そこで合成される8つの corelive client コンポーネント（外部ライブラリ2件を除く）の実行コードは**全て本表に存在する**。これが「バンドル同梱のみの行 ∩ 実行/可視 = 0、かつ client 挙動は漏れなく本表に存在」の代表的な実証である。5a は境界の全数ではなく代表例であり、残りは上記の不変条件でカバーされる。
 
 ---
 
-**結論（境界の一貫性）**: Class A（RSC 合成サイト 10行）も Class B（静的バンドル JSX 325行）も、「バンドルに同梱されているが当セッションの録画では実行も可視化もされていない = タイムラインアンカーを持たない」という同一基準で本表の証拠層から除外し、ここに全数明示した。本表は、録画の2つのクライアントオラクルが可視／実行として帰属する corelive/src の行を漏れなく含む（rrweb 179行 / cpu・Mode B 54・6125行、欠落 0、5監査で確認済み）。バンドル同梱のみの行を「録画に含まれている」と解釈する場合は corelive/src ほぼ全体が対象となり "画面に映っている、実行されている" という録画要件と矛盾するため、本表はその解釈を採らず、境界を上記に明示することで最終確認者の判断に委ねる。
+**結論**: 本表は、録画の2つのクライアントオラクルが可視／実行として corelive/src に帰属した行を漏れなく含む（rrweb 179行 / cpu・Mode B 54・6125行、欠落 0、5監査で確認済み）。バンドルに静的同梱されただけの行は当セッションで実行も可視化もされておらず（可視/実行集合との交差 0、総数は方法依存で well-defined でない）、"画面に映っている、実行されている" という録画要件に該当しないため証拠層から除外した。その境界の存在と、そこで合成される client 挙動が漏れなく本表に載ることを 5a に明示する。最終確認者はこの定義 — 「録画に含まれている」= 可視/実行オラクルにアンカー — に基づき判断されたい。

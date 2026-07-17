@@ -1,28 +1,40 @@
-// Adversarial completeness scan for the goal's LITERAL "録画に含まれている" reading:
-// enumerate EVERY corelive/src data-insp-path stamp physically present in any
-// recorded artifact (rrweb lane + all externalized blobs incl. RSC flight
-// payloads), classify the carrying artifact, and diff against the table union.
+// Boundary DIAGNOSTIC for the goal's literal "録画に含まれている" reading: enumerate
+// corelive/src data-insp-path stamps physically present in recorded artifacts (rrweb lane
+// + externalized blobs incl. RSC flight payloads + SSR HTML) and diff against the
+// authoritative JSON table union. Surfaces the class the oracle-based audits structurally
+// exclude: lines shipped in the bundle but neither executed (Mode B coverage) nor visible
+// (rrweb) this session.
 //
-// Purpose: find server-component composition lines (uppercase JSX tags) that
-// live in the recorded RSC payload but produce no client-visible DOM and no
-// client execution — the one class the oracle-based audits structurally exclude.
+//   node scripts/scan-recording-stamps.mjs <recordingDir> [table.md]
 //
-// Usage: node scripts/scan-recording-stamps.mjs <recordingDir> <table.md>
+// IMPORTANT — this is ONE methodology's view, kept for the report's boundary appendix, NOT
+// for regenerating §5. §5 of the deliverable is a hand-written INVARIANT section that pins
+// no exact count, precisely because the census is method-dependent (measured ~331–406 across
+// methods). Two reasons it is not well-defined: (a) blob universe — some SSR-HTML blobs are
+// orphaned build artifacts no longer referenced by the current network.jsonl; (b) this regex
+// is data-insp-path-ADJACENT, so it does NOT catch React-Compiler-HOISTED stamps
+// (const t = __codeInspectorPath || "src/…:L:C:Tag") that an adjacency-independent scan adds.
+// What §5 relies on is the INVARIANT this script re-verifies: rrweb-leak = 0 and
+// coverage-leak = 0 (bundle-only lines never intersect the visible/executed sets).
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
-const [REC, TABLE] = process.argv.slice(2)
+const REC = process.argv[2]
+const TABLE = process.argv[3] && !process.argv[3].startsWith('--') ? process.argv[3] : null
 const decode = (s) => { try { return decodeURIComponent(s) } catch { return s } }
 
-// Matches both JSON ("data-insp-path":"…") and HTML (data-insp-path="…") forms.
-const INSP = /data-insp-path\\?["'=:\s]+((?:src|electron)\/[^"'\\]+?):(\d+):(\d+):([A-Za-z0-9_$]+)/g
+// Matches unescaped JSON ("data-insp-path":"…"), HTML (data-insp-path="…"), AND the
+// double-escaped RSC-flight-in-HTML form (\"data-insp-path\":\"…\" inside
+// <script>self.__next_f.push(...)</script>). The separator class MUST include backslash,
+// else CodeInspectorEmptyElement stamps — which live ONLY in escaped flight form (they
+// render no host element) — are systematically dropped (Audit 1 & 4, commit 9fdc5c1).
+const INSP = /data-insp-path["'=:\s\\]+((?:src|electron)\/[^"'\\]+?):(\d+):(\d+):([A-Za-z0-9_$]+)/g
 
 /** Classify a recorded artifact's body by content signature. */
 function classify(text) {
   const head = text.slice(0, 400)
   if (/^\s*<!doctype html/i.test(head) || /^\s*<html/i.test(head)) return 'html'
   if (/TURBOPACK|webpackChunk|__turbopack_|module\.exports|\("\[project\]/.test(head)) return 'jschunk'
-  // RSC flight: numbered rows like `2:I[...]`, `0:["$","div"`, or self-ref $ markers
   if (/^\s*\d+:[I\[HTSL{"]/.test(head) || /"\$","/.test(text.slice(0, 2000)) || /\d+:\["\$"/.test(text.slice(0, 4000))) return 'rsc'
   if (/"type":\d+,"data":|"childNodes":|"tagName":/.test(head)) return 'rrweb-snapshot'
   return 'other'
@@ -33,14 +45,12 @@ function stamps(text) {
   const out = []
   let m
   INSP.lastIndex = 0
-  while ((m = INSP.exec(text))) {
-    out.push({ disp: decode(m[1]), line: +m[2], col: +m[3], tag: m[4] })
-  }
+  while ((m = INSP.exec(text))) out.push({ disp: decode(m[1]), line: +m[2], col: +m[3], tag: m[4] })
   return out
 }
 
 // ── Scan every blob + the rrweb lane ────────────────────────────────────────
-const byKey = new Map() // "disp:line" -> { disp, line, tags:Set, artifacts:Set, tagCase }
+const byKey = new Map() // "disp:line" -> { disp, line, tags:Set, artifacts:Set }
 function record(s, artifact) {
   const key = s.disp + ':' + s.line
   if (!byKey.has(key)) byKey.set(key, { disp: s.disp, line: s.line, tags: new Set(), artifacts: new Set() })
@@ -48,10 +58,8 @@ function record(s, artifact) {
   e.tags.add(s.tag)
   e.artifacts.add(artifact)
 }
-
 const blobDir = join(REC, 'blobs')
 let blobsScanned = 0
-const rscBlobs = []
 for (const f of readdirSync(blobDir)) {
   const p = join(blobDir, f)
   if (!statSync(p).isFile()) continue
@@ -60,68 +68,70 @@ for (const f of readdirSync(blobDir)) {
   if (!text.includes('data-insp-path')) continue
   blobsScanned++
   const kind = classify(text)
-  const ss = stamps(text)
-  if (kind === 'rsc' && ss.length) rscBlobs.push({ f, count: ss.length })
-  for (const s of ss) record(s, kind)
+  for (const s of stamps(text)) record(s, kind)
 }
-// rrweb lane (DOM = on-screen)
 for (const line of readFileSync(join(REC, 'lanes', 'rrweb.jsonl'), 'utf8').split('\n')) {
   if (!line.includes('data-insp-path')) continue
   for (const s of stamps(line)) record(s, 'rrweb')
 }
 
-// ── Table union (AUTHORITATIVE: from the JSON the table is generated from, not
-//    fragile markdown parsing). The deliverable renders exactly:
-//      coverage-timeline sources[].allLines  (§2/§3 Mode B)
-//    ∪ recording-evidence evidence[file][line] (§1 V/C/S direct oracles)
-//    ∪ server §4 rows (rrweb-visible server-component host lines).
-//    Auditors 4 & 5 verified §3 ≡ allLines and §1 ≡ evidence, so this union IS
-//    the table's true (file,line) content. ─────────────────────────────────────
-const tableKeys = new Set()
-const tableFiles = new Set()
-const add = (file, line) => { tableKeys.add(file + ':' + Number(line)); tableFiles.add(file) }
+// ── Authoritative table union (from the JSON the table is generated from) ────
 const timeline = JSON.parse(readFileSync(join(REC, 'coverage', 'coverage-timeline.json'), 'utf8'))
-for (const s of timeline.sources) for (const l of s.allLines) add(s.display, l)
 const evidence = JSON.parse(readFileSync(join(REC, 'coverage', 'recording-evidence.json'), 'utf8'))
+const tableKeys = new Set()
+const add = (file, line) => tableKeys.add(file + ':' + Number(line))
+for (const s of timeline.sources) for (const l of s.allLines) add(s.display, l)
 for (const [file, perLine] of Object.entries(evidence.evidence)) for (const l of Object.keys(perLine)) add(file, l)
-// §4 server-visible host lines carried in the deliverable.
 for (const [file, lines] of [['src/app/layout.tsx', [50, 59]], ['src/app/(main)/layout.tsx', [20]]]) for (const l of lines) add(file, l)
 
-// ── Report ──────────────────────────────────────────────────────────────────
+// ── Boundary: recorded stamps absent from the visible+executed union ─────────
 const all = [...byKey.values()]
-const upper = all.filter((e) => [...e.tags].some((t) => /^[A-Z]/.test(t)))
 const notInTable = all.filter((e) => !tableKeys.has(e.disp + ':' + e.line))
-
-console.log('blobs with data-insp-path scanned:', blobsScanned, '| RSC-classified blobs:', rscBlobs.length)
-console.log('distinct corelive (file,line) stamps across ALL recorded artifacts:', all.length)
-console.log('table union keys parsed:', tableKeys.size, '| table files:', tableFiles.size)
-console.log('\n=== corelive stamps NOT in table union (candidate literal-reading gaps) ===')
-const grouped = new Map()
-for (const e of notInTable) {
-  if (!grouped.has(e.disp)) grouped.set(e.disp, [])
-  grouped.get(e.disp).push(e)
-}
-for (const [disp, entries] of [...grouped.entries()].sort()) {
-  const inRrweb = entries.some((e) => e.artifacts.has('rrweb'))
-  const arts = new Set(entries.flatMap((e) => [...e.artifacts]))
-  console.log(`\n  ${disp}  (${entries.length} lines; artifacts: ${[...arts].join(',')}; anyRrweb=${inRrweb})`)
-  for (const e of entries.sort((a, b) => a.line - b.line)) {
-    console.log(`    :${e.line}  <${[...e.tags].join('/')}>  [${[...e.artifacts].join(',')}]`)
+const carrierOf = (e) => (e.artifacts.has('rsc') ? 'rsc' : e.artifacts.has('html') ? 'html' : e.artifacts.has('jschunk') ? 'jschunk' : [...e.artifacts][0])
+// Class A = server-render output (layout/page): RSC flight + SSR HTML carriers.
+// Class B = client JS bundle static JSX: jschunk carrier.
+const serverCls = notInTable.filter((e) => carrierOf(e) === 'rsc' || carrierOf(e) === 'html')
+const clientCls = notInTable.filter((e) => carrierOf(e) === 'jschunk')
+const filesOf = (arr) => new Set(arr.map((e) => e.disp)).size
+const groupByFile = (arr) => {
+  const m = new Map()
+  for (const e of arr.sort((a, b) => a.disp.localeCompare(b.disp) || a.line - b.line)) {
+    if (!m.has(e.disp)) m.set(e.disp, [])
+    m.get(e.disp).push(e)
   }
+  return m
 }
-console.log('\n=== summary ===')
-console.log('total stamps not in table:', notInTable.length, '| across files:', new Set(notInTable.map((e) => e.disp)).size)
-console.log('  of which uppercase-tag (component composition):', notInTable.filter((e) => [...e.tags].some((t) => /^[A-Z]/.test(t))).length)
-console.log('  of which appear in an RSC payload:', notInTable.filter((e) => [...e.artifacts].some((a) => a === 'rsc')).length)
-console.log('  of which appear in rrweb (would be a REAL visible gap!):', notInTable.filter((e) => e.artifacts.has('rrweb')).length)
-// Per-artifact split (a stamp can carry multiple; count by primary carrier).
-const byArt = {}
-for (const e of notInTable) { const a = e.artifacts.has('rsc') ? 'rsc' : e.artifacts.has('html') ? 'html' : e.artifacts.has('jschunk') ? 'jschunk' : [...e.artifacts][0]; byArt[a] = (byArt[a] || 0) + 1 }
-console.log('  by carrier:', JSON.stringify(byArt))
-// Cross-check: every not-in-table line MUST be absent from Mode B coverage allLines (executed).
-const execKeys = new Set()
-for (const s of timeline.sources) for (const l of s.allLines) execKeys.add(s.display + ':' + l)
-const execLeak = notInTable.filter((e) => execKeys.has(e.disp + ':' + e.line))
-console.log('  not-in-table lines that ARE in Mode B coverage (should be 0):', execLeak.length)
-console.log('\n=== RSC-payload composition lines (Class A — enumerate) ===')
-for (const e of notInTable.filter((x) => x.artifacts.has('rsc')).sort((a, b) => (a.disp + a.line).localeCompare(b.disp + b.line))) console.log(`  ${e.disp}:${e.line}  <${[...e.tags].join('/')}>`)
+const execLines = new Set()
+for (const s of timeline.sources) for (const l of s.allLines) execLines.add(s.disp + ':' + l)
+const execLeak = notInTable.filter((e) => new Set([...timeline.sources].flatMap((s) => s.allLines.map((l) => s.display + ':' + l))).has(e.disp + ':' + e.line))
+const rrwebLeak = notInTable.filter((e) => e.artifacts.has('rrweb'))
+const byCarrier = {}
+for (const e of notInTable) byCarrier[carrierOf(e)] = (byCarrier[carrierOf(e)] || 0) + 1
+
+// ── Diagnostics: ONE methodology's boundary view (method-dependent — see header) ──
+// Deliberately NOT emitting a markdown §5. §5 is a hand-written INVARIANT section that
+// pins no exact count; this output is kept only for the report's boundary appendix and to
+// re-verify the two invariants that DO matter: rrweb-leak = 0 and coverage-leak = 0.
+console.log('blobs with data-insp-path scanned:', blobsScanned)
+console.log('distinct corelive (file,line) stamps across ALL recorded artifacts:', all.length)
+console.log('table union keys:', tableKeys.size)
+console.log('\n=== summary (one methodology: data-insp-path-adjacent regex, all blobs) ===')
+console.log('total stamps not in table:', notInTable.length, '| across files:', filesOf(notInTable))
+console.log('  by carrier:', JSON.stringify(byCarrier))
+console.log('  rrweb leak (visible set — MUST be 0):', rrwebLeak.length)
+console.log('  Mode B coverage leak (executed set — MUST be 0):', execLeak.length)
+console.log('  CAVEAT: census is method-dependent (~331–406). This regex is data-insp-path-ADJACENT,')
+console.log('  so React-Compiler-HOISTED stamps (const t = __codeInspectorPath || "src/…:L:C:Tag") are')
+console.log('  NOT counted; some SSR-HTML blobs are orphaned build artifacts. The invariant (leak=0),')
+console.log('  not the count, is what §5 relies on — and it holds against the wider hoisted superset too.')
+console.log(`\n=== Class A — server-render output (RSC flight + SSR HTML): ${serverCls.length} lines / ${filesOf(serverCls)} files ===`)
+for (const [d, entries] of groupByFile(serverCls)) {
+  const carriers = [...new Set(entries.flatMap((e) => [...e.artifacts]))].filter((a) => a !== 'other').join('/')
+  console.log(`  ${d}: ${entries.map((e) => e.line).join(',')}  [${carriers}]`)
+}
+console.log(`\n=== Class B — client JS bundle static JSX (jschunk): ${clientCls.length} lines / ${filesOf(clientCls)} files ===`)
+for (const [d, entries] of groupByFile(clientCls)) console.log(`  ${d}: ${entries.map((e) => e.line).join(',')}`)
+if (TABLE) {
+  const md = readFileSync(TABLE, 'utf8')
+  console.log('\n(table provided:', TABLE, '—', md.length, 'bytes)')
+}

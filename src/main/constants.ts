@@ -75,3 +75,8 @@ export const REDEBUG_RANDOM_SEED = 0x12345678
 /** Fallback viewport when the bundle has no snapshot (pre-P1 recordings). */
 export const REDEBUG_WINDOW_WIDTH_PX = 1280
 export const REDEBUG_WINDOW_HEIGHT_PX = 720
+
+/** Coverage harvest: interim take cadence inside long re-paced waits (finer timeline). */
+export const REDEBUG_HARVEST_INTERIM_TAKE_MS = 500
+/** Coverage harvest: max settle after the final input so trailing fetches/effects run. */
+export const REDEBUG_HARVEST_TAIL_MS = 5000

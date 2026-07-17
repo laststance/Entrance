@@ -19,6 +19,12 @@ export const startRedebugSchema = z.object({
   breakpoint: z
     .object({ url: z.string(), lineNumber: z.number().int().nonnegative() })
     .optional(),
+  /**
+   * Coverage harvest mode: replay ALL inputs without pausing while taking
+   * precise-coverage deltas at event boundaries, then write
+   * coverage/coverage-timeline.json into the bundle and finish.
+   */
+  harvest: z.boolean().optional(),
 })
 export type StartRedebugRequest = z.infer<typeof startRedebugSchema>
 
@@ -77,4 +83,8 @@ export interface RedebugStatus {
   divergences: RedebugDivergence[]
   /** Human-readable why, when phase === 'failed'. */
   error?: string
+  /** Harvest progress while a coverage run replays inputs. */
+  harvest?: { inputsDispatched: number; inputsTotal: number }
+  /** Set with phase 'finished' after a harvest wrote its artifact. */
+  harvestResult?: { bucketCount: number; appFileCount: number; appLineCount: number }
 }

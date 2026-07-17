@@ -15,6 +15,8 @@ import type {
 } from '@shared/redebug'
 
 import {
+  REDEBUG_HARVEST_INTERIM_TAKE_MS,
+  REDEBUG_HARVEST_TAIL_MS,
   REDEBUG_HYDRATION_POLL_INTERVAL_MS,
   REDEBUG_HYDRATION_TIMEOUT_MS,
   REDEBUG_INPUT_MAX_WAIT_MS,
@@ -29,7 +31,18 @@ import {
   REDEBUG_WINDOW_WIDTH_PX,
 } from '../constants'
 import { readRedebugBundle, type RedebugBundle } from './bundle-reader'
+import { CoverageCollector } from './coverage-collector'
 import { NetworkMatcher } from './network-matcher'
+
+type CdpSend = (method: string, params?: unknown) => Promise<unknown>
+
+/** Mutable state threaded through a harvest input replay (bucket bookkeeping). */
+interface HarvestContext {
+  collector: CoverageCollector
+  send: CdpSend
+  /** Recorded-clock offset of the last coverage take — next bucket starts here. */
+  lastBoundaryOffset: number
+}
 
 /**
  * Mode B core: re-executes a recording inside a hidden BrowserWindow with an
@@ -106,9 +119,14 @@ export class RedebugSession {
    * arrives via scriptParsed, and without it sourcemap resolution is dead.
    */
   private readonly scriptUrlById = new Map<string, string>()
+  /** Set only in harvest mode (request.harvest) — owns coverage takes + artifact. */
+  private collector: CoverageCollector | null = null
+  private inputsDispatched = 0
+  private inputsTotal = 0
+  private harvestResult: RedebugStatus['harvestResult']
 
   constructor(
-    recordingDirPath: string,
+    private readonly recordingDirPath: string,
     private readonly request: StartRedebugRequest,
     private readonly onStatus: (status: RedebugStatus) => void,
   ) {
@@ -123,6 +141,10 @@ export class RedebugSession {
       pause: this.pauseState,
       divergences: [...this.divergences],
       error: this.lastError,
+      ...(this.collector && {
+        harvest: { inputsDispatched: this.inputsDispatched, inputsTotal: this.inputsTotal },
+      }),
+      ...(this.harvestResult && { harvestResult: this.harvestResult }),
     })
   }
 
@@ -254,7 +276,11 @@ export class RedebugSession {
       await send('Page.enable')
       // DOMDebugger event-listener breakpoints silently no-op without DOM.
       await send('DOM.enable')
-      if (this.request.breakpoint) {
+      if (this.request.harvest) {
+        // Coverage harvest never pauses — block-precise counters instead.
+        this.collector = new CoverageCollector(this.recordingDirPath)
+        await this.collector.attach(send)
+      } else if (this.request.breakpoint) {
         // Line-exact pause at a recorded anchor location (decision 30b).
         await send('Debugger.setBreakpointByUrl', {
           url: this.request.breakpoint.url,
@@ -286,6 +312,12 @@ export class RedebugSession {
     // and never dispatch inputs into a paused renderer (the awaited
     // Input.dispatch* would simply never ack).
     if (this.isPausedNow()) return
+
+    // Harvest: full-timeline replay + coverage buckets, then finish — no pause.
+    if (this.collector) {
+      await this.runHarvest(send)
+      return
+    }
 
     // Trusted input re-dispatch up to the requested event boundary.
     this.phase = 'replaying-inputs'
@@ -361,7 +393,10 @@ export class RedebugSession {
       )
     } else if (method === 'Debugger.scriptParsed') {
       const script = params as { scriptId?: string; url?: string }
-      if (script.scriptId && script.url) this.scriptUrlById.set(script.scriptId, script.url)
+      if (script.scriptId && script.url) {
+        this.scriptUrlById.set(script.scriptId, script.url)
+        this.collector?.onScriptParsed(script.scriptId, script.url)
+      }
     } else if (method === 'Debugger.resumed') {
       if (this.phase === 'paused') {
         this.phase = 'running'
@@ -446,7 +481,7 @@ export class RedebugSession {
    * input so the pause lands inside that event's JS task (decision 30b).
    * @returns true when the pause was armed (or a breakpoint already paused us).
    */
-  private async dispatchInputs(): Promise<boolean> {
+  private async dispatchInputs(harvestContext?: HarvestContext): Promise<boolean> {
     const window = this.window
     if (!window || window.isDestroyed()) return false
     const send = (method: string, sendParams?: unknown): Promise<unknown> =>
@@ -458,6 +493,10 @@ export class RedebugSession {
     const events = this.bundle.inputLane.filter(
       (event) => event.tMono >= t0Mono && event.seq <= runToSeq,
     )
+    if (harvestContext) {
+      this.inputsTotal = events.length
+      this.pushStatus()
+    }
 
     let didArmPause = false
     let previousTMono = t0Mono
@@ -474,9 +513,29 @@ export class RedebugSession {
       const recordedGapMs = Math.min(event.tMono - previousTMono, REDEBUG_INPUT_MAX_WAIT_MS)
       previousTMono = event.tMono
       const waitMs = Math.max(recordedGapMs, REDEBUG_INPUT_SETTLE_MS)
-      await new Promise((resolve) => setTimeout(resolve, waitMs))
+      if (harvestContext) {
+        await this.waitWithInterimTakes(harvestContext, waitMs, event.tMono - t0Mono)
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, waitMs))
+      }
       if (index === 0) await this.waitForHydration(input.x ?? 0, input.y ?? 0)
       if (this.isDisposed || this.isPausedNow()) return true
+
+      // Close the bucket ending at this event: everything since the previous
+      // boundary executed inside (lastBoundary, thisEvent] on the recorded clock.
+      if (harvestContext) {
+        const eventOffset = event.tMono - t0Mono
+        await harvestContext.collector.take(
+          {
+            kind: 'input',
+            seq: event.seq,
+            tStart: harvestContext.lastBoundaryOffset,
+            tEnd: eventOffset,
+          },
+          harvestContext.send,
+        )
+        harvestContext.lastBoundaryOffset = eventOffset
+      }
 
       // Task-exact pause (decision 30b): an event-listener breakpoint fires
       // inside the final input's own handler — a bare Debugger.pause races
@@ -484,7 +543,8 @@ export class RedebugSession {
       // would suspend inside itself, so the final dispatches are
       // fire-and-forget past this point.
       const armPause = async (): Promise<void> => {
-        if (!isFinal || didArmPause) return
+        // Harvest never pauses — it must run through the whole timeline.
+        if (harvestContext || !isFinal || didArmPause) return
         const eventName = input.kind === 'click' ? 'click' : input.kind === 'key' ? 'keydown' : null
         try {
           if (eventName) {
@@ -499,7 +559,9 @@ export class RedebugSession {
         }
       }
       const post = (method: string, sendParams?: unknown): Promise<unknown> => {
-        if (isFinal) {
+        // Fire-and-forget only applies when a pause is armed (the ack would
+        // never come back) — harvest keeps every dispatch awaited.
+        if (isFinal && !harvestContext) {
           void send(method, sendParams).catch(() => {})
           return Promise.resolve()
         }
@@ -570,8 +632,85 @@ export class RedebugSession {
       } catch {
         /* window went away mid-dispatch — dispose handles state */
       }
+      if (harvestContext) {
+        this.inputsDispatched = index + 1
+        this.pushStatus()
+      }
     }
     return didArmPause
+  }
+
+  /** Harvest run: replay every input with coverage takes, settle, write the artifact. */
+  private async runHarvest(send: CdpSend): Promise<void> {
+    const collector = this.collector
+    if (!collector) return
+    this.phase = 'replaying-inputs'
+    this.pushStatus()
+    const harvestContext: HarvestContext = { collector, send, lastBoundaryOffset: 0 }
+    await this.dispatchInputs(harvestContext)
+    if (this.isDisposed) return
+
+    const { durationMs, recordingId } = this.bundle.manifest
+    // The recorded tail after the final input still runs timers/fetch handlers.
+    const tailMs = Math.min(
+      Math.max(durationMs - harvestContext.lastBoundaryOffset, REDEBUG_INPUT_SETTLE_MS),
+      REDEBUG_HARVEST_TAIL_MS,
+    )
+    await new Promise((resolve) => setTimeout(resolve, tailMs))
+    if (this.isDisposed) return
+    await collector.take(
+      { kind: 'tail', tStart: harvestContext.lastBoundaryOffset, tEnd: durationMs },
+      send,
+    )
+    try {
+      const timeline = await collector.finalize(send, {
+        recordingId,
+        durationMs,
+        divergences: this.divergences.map((d) => ({ oracle: d.oracle, message: d.message })),
+      })
+      this.harvestResult = {
+        bucketCount: timeline.buckets.length,
+        appFileCount: timeline.stats.appFileCount,
+        appLineCount: timeline.stats.appLineCount,
+      }
+    } catch (error) {
+      this.fail(`カバレッジ解析に失敗しました: ${String(error)}`)
+      return
+    }
+    this.phase = 'finished'
+    this.pushStatus()
+    this.dispose()
+  }
+
+  /** Re-paced wait sliced by interim coverage takes — finer timeline attribution. */
+  private async waitWithInterimTakes(
+    harvestContext: HarvestContext,
+    waitMs: number,
+    targetOffset: number,
+  ): Promise<void> {
+    const gapStartOffset = harvestContext.lastBoundaryOffset
+    let elapsedMs = 0
+    while (elapsedMs < waitMs) {
+      const sliceMs = Math.min(REDEBUG_HARVEST_INTERIM_TAKE_MS, waitMs - elapsedMs)
+      await new Promise((resolve) => setTimeout(resolve, sliceMs))
+      elapsedMs += sliceMs
+      if (this.isDisposed) return
+      // The final slice's coverage belongs to the input-boundary take instead.
+      if (elapsedMs >= waitMs) return
+      // Proportional position inside the recorded gap — honest approx flag.
+      const estimatedOffset = gapStartOffset + (elapsedMs / waitMs) * (targetOffset - gapStartOffset)
+      if (estimatedOffset <= harvestContext.lastBoundaryOffset) continue
+      await harvestContext.collector.take(
+        {
+          kind: 'interim',
+          tStart: harvestContext.lastBoundaryOffset,
+          tEnd: estimatedOffset,
+          approx: true,
+        },
+        harvestContext.send,
+      )
+      harvestContext.lastBoundaryOffset = estimatedOffset
+    }
   }
 
   /**
@@ -626,6 +765,12 @@ export class RedebugSession {
   }): Promise<void> {
     const window = this.window
     if (!window || window.isDestroyed()) return
+    // Harvest must keep executing: a stray pause (e.g. a `debugger` statement
+    // in page code) would freeze the replay, so resume immediately.
+    if (this.collector) {
+      void window.webContents.debugger.sendCommand('Debugger.resume').catch(() => {})
+      return
+    }
     // One-shot: without removal every later click/keydown would re-trap.
     if (this.armedEventListenerBreakpoint) {
       void window.webContents.debugger

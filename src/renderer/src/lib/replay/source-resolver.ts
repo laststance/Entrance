@@ -8,8 +8,8 @@ import { z } from 'zod'
 
 import type { CodeFrame } from '@shared/code-anchors'
 
-import { formatSourcePath } from '../format-source-path'
-import { isAppSourcePath } from '../is-app-source-path'
+import { formatSourcePath } from '@shared/format-source-path'
+import { isAppSourcePath } from '@shared/is-app-source-path'
 
 /**
  * Maps recorded CDP frames (generated chunk + 0-based line/column) to original

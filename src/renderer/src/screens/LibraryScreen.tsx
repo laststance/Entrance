@@ -107,7 +107,8 @@ function LibraryBody({
             ライブラリ
           </span>
         </div>
-        <div className="app-no-drag mx-auto flex h-8 w-full max-w-[560px] items-center gap-2 rounded-lg border border-border bg-sunken px-3">
+        {/* Keyboard focus lives on the wrapper (input is outline-none) — same ring idiom as the 1f URL field. */}
+        <div className="app-no-drag mx-auto flex h-8 w-full max-w-[560px] items-center gap-2 rounded-lg border border-border bg-sunken px-3 focus-within:ring-2 focus-within:ring-ring/60">
           <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <input
             ref={searchInputRef}

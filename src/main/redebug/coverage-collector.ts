@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { AnyMap, eachMapping, type TraceMap } from '@jridgewell/trace-mapping'
+import { AnyMap, eachMapping, sourceContentFor, type TraceMap } from '@jridgewell/trace-mapping'
 import { z } from 'zod'
 
 import {
@@ -190,6 +190,8 @@ export class CoverageCollector {
 
     // Flat app-source mappings per script url (vendor-only maps skipped whole).
     const mappingsByUrl = new Map<string, FlatMapping[] | null>()
+    // Kept for sourcesContent extraction when the artifact is assembled.
+    const traceMapByUrl = new Map<string, TraceMap>()
     const loadMappings = (url: string): FlatMapping[] | null => {
       const cached = mappingsByUrl.get(url)
       if (cached !== undefined) return cached
@@ -200,6 +202,7 @@ export class CoverageCollector {
           const traceMap: TraceMap = new AnyMap(JSON.parse(readFileSync(mapPath, 'utf8')))
           // A map with zero app sources (react-dom, clerk…) can never contribute.
           if (traceMap.sources.some((source) => isAppSourcePath(source ?? ''))) {
+            traceMapByUrl.set(url, traceMap)
             const collected: FlatMapping[] = []
             eachMapping(traceMap, (mapping) => {
               if (mapping.source === null || mapping.originalLine === null) return
@@ -302,6 +305,27 @@ export class CoverageCollector {
       })
     }
 
+    // Union rows with original text so the renderer panel is self-contained.
+    const sources = [...allLinesBySource.entries()]
+      .map(([source, lines]) => {
+        let content: string | null = null
+        for (const traceMap of traceMapByUrl.values()) {
+          try {
+            content = sourceContentFor(traceMap, source)
+          } catch {
+            content = null
+          }
+          if (content !== null) break
+        }
+        return {
+          source,
+          display: formatSourcePath(source),
+          content,
+          allLines: [...lines].sort((a, b) => a - b),
+        }
+      })
+      .sort((a, b) => a.display.localeCompare(b.display))
+
     const timeline: CoverageTimeline = {
       schemaVersion: 1,
       recordingId: meta.recordingId,
@@ -309,6 +333,7 @@ export class CoverageCollector {
       method: 'modeB-precise-coverage',
       durationMs: meta.durationMs,
       buckets,
+      sources,
       divergences: meta.divergences,
       stats: {
         scriptsSeen,

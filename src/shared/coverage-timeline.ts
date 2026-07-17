@@ -51,6 +51,17 @@ export const coverageBucketSchema = z.object({
 })
 export type CoverageBucket = z.infer<typeof coverageBucketSchema>
 
+/** Union entry per app source file — carries the original text for the panel. */
+export const coverageSourceSchema = z.object({
+  source: z.string(),
+  display: z.string(),
+  /** Original source text from the sourcemap (null when sourcesContent was absent). */
+  content: z.string().nullable(),
+  /** Every line executed anywhere in the recording, ascending. */
+  allLines: z.array(z.number().int().positive()),
+})
+export type CoverageSource = z.infer<typeof coverageSourceSchema>
+
 export const coverageTimelineSchema = z.object({
   schemaVersion: z.literal(1),
   recordingId: z.string(),
@@ -58,6 +69,7 @@ export const coverageTimelineSchema = z.object({
   method: z.literal('modeB-precise-coverage'),
   durationMs: z.number(),
   buckets: z.array(coverageBucketSchema),
+  sources: z.array(coverageSourceSchema),
   /** Divergences observed during the harvest run — honesty surface (decision 11). */
   divergences: z.array(z.object({ oracle: z.string(), message: z.string() })),
   stats: z.object({
@@ -172,4 +184,26 @@ export function coverageBucketAt(
     else high = mid - 1
   }
   return low >= 0 ? buckets[low] : null
+}
+
+/**
+ * The bucket the panel should DISPLAY at a playhead: idle buckets are skipped
+ * back to the most recent one where app code actually executed.
+ * @param buckets - CoverageTimeline.buckets
+ * @param tMonoOffsetMs - playhead position
+ * @returns
+ * - latest bucket at/before the playhead with a non-empty files list
+ * - null when no app code has executed yet
+ * @example coverageDisplayBucketAt(buckets, 40_000)?.files[0].display // => 'src/app/…'
+ */
+export function coverageDisplayBucketAt(
+  buckets: CoverageBucket[],
+  tMonoOffsetMs: number,
+): CoverageBucket | null {
+  const bucket = coverageBucketAt(buckets, tMonoOffsetMs)
+  if (!bucket) return null
+  let index = buckets.indexOf(bucket)
+  // Walk back through idle buckets — "the code running here" is the last burst.
+  while (index >= 0 && buckets[index].files.length === 0) index--
+  return index >= 0 ? buckets[index] : null
 }

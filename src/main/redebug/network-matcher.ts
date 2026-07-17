@@ -72,6 +72,13 @@ const matchKey = (method: string, url: string): string =>
 export class NetworkMatcher {
   /** FIFO per key — recorded order is the ordinal (decision 29). */
   private readonly queues = new Map<string, RecordedExchange[]>()
+  /**
+   * Last answerable exchange per key — a re-execution may fetch a static asset
+   * MORE times than the recording did (preload + script tag, cache-miss
+   * retries), and failing the extra GET breaks the boot for content that is
+   * byte-identical anyway. GET-only replay; stateful POSTs keep strict FIFO.
+   */
+  private readonly lastByKey = new Map<string, RecordedExchange>()
 
   /**
    * Indexes a recording's network lane into match queues.
@@ -123,7 +130,10 @@ export class NetworkMatcher {
     for (const [key, queue] of this.queues) {
       const answerable = queue.filter((exchange) => exchange.status > 0)
       if (answerable.length === 0) this.queues.delete(key)
-      else this.queues.set(key, answerable)
+      else {
+        this.queues.set(key, answerable)
+        this.lastByKey.set(key, answerable[answerable.length - 1])
+      }
     }
   }
 
@@ -137,9 +147,13 @@ export class NetworkMatcher {
    * @example matcher.match('GET', 'http://localhost:3000/api/notes')
    */
   match(method: string, url: string): RecordedExchange | null {
-    const queue = this.queues.get(matchKey(method, url))
-    if (!queue || queue.length === 0) return null
-    return queue.shift() ?? null
+    const key = matchKey(method, url)
+    const queue = this.queues.get(key)
+    const consumed = queue?.shift() ?? null
+    if (consumed) return consumed
+    // Ordinals exhausted: replay the last recorded answer for repeated GETs
+    // (static assets are idempotent); anything else stays an honest miss.
+    return method.toUpperCase() === 'GET' ? (this.lastByKey.get(key) ?? null) : null
   }
 
   /**

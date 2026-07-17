@@ -31,10 +31,11 @@ describe('Mode B network matcher (decision 29 ordinal replay)', () => {
       ...recordedExchange('r2', 'http://localhost:3000/api/poll', 200, 'hash-second'),
     ])
 
-    // Act + Assert — ordinals consume FIFO
+    // Act + Assert — ordinals consume FIFO; an extra GET replays the last
+    // answer instead of failing (re-executions may double-fetch static assets)
     expect(matcher.match('GET', 'http://localhost:3000/api/poll')?.bodyHash).toBe('hash-first')
     expect(matcher.match('GET', 'http://localhost:3000/api/poll')?.bodyHash).toBe('hash-second')
-    expect(matcher.match('GET', 'http://localhost:3000/api/poll')).toBeNull()
+    expect(matcher.match('GET', 'http://localhost:3000/api/poll')?.bodyHash).toBe('hash-second')
   })
 
   it('reports a miss (divergence) for requests the recording never saw', () => {
@@ -82,5 +83,73 @@ describe('Mode B network matcher (decision 29 ordinal replay)', () => {
     expect(normalizeMatchUrl('http://localhost:3000/page#section')).toBe('http://localhost:3000/page')
     expect(matcher.match('GET', 'http://localhost:3000/page')?.bodyHash).toBe('h2')
     expect(matcher.match('GET', 'http://localhost:3000/api/slow')).toBeNull()
+  })
+})
+
+describe('GET replay fallback', () => {
+  it('serves a repeated GET for a static asset after its ordinal is consumed', () => {
+    // Arrange — one recorded exchange for a chunk the page fetches twice
+    // (preload + script tag) during re-execution.
+    const matcher = new NetworkMatcher([
+      {
+        seq: 1,
+        tMono: 0,
+        tWall: 0,
+        lane: 'network',
+        payload: {
+          phase: 'request',
+          requestId: 'r1',
+          url: 'http://localhost:3000/chunk.js',
+          method: 'GET',
+        },
+      },
+      {
+        seq: 2,
+        tMono: 1,
+        tWall: 1,
+        lane: 'network',
+        payload: { phase: 'response', requestId: 'r1', status: 200 },
+      },
+    ])
+
+    // Act
+    const first = matcher.match('GET', 'http://localhost:3000/chunk.js')
+    const second = matcher.match('GET', 'http://localhost:3000/chunk.js')
+
+    // Assert — the second request replays the same recorded answer.
+    expect(first?.status).toBe(200)
+    expect(second?.status).toBe(200)
+  })
+
+  it('never replays exhausted POST ordinals (stateful requests stay strict FIFO)', () => {
+    // Arrange
+    const matcher = new NetworkMatcher([
+      {
+        seq: 1,
+        tMono: 0,
+        tWall: 0,
+        lane: 'network',
+        payload: {
+          phase: 'request',
+          requestId: 'p1',
+          url: 'http://localhost:3000/api/todo',
+          method: 'POST',
+        },
+      },
+      {
+        seq: 2,
+        tMono: 1,
+        tWall: 1,
+        lane: 'network',
+        payload: { phase: 'response', requestId: 'p1', status: 200 },
+      },
+    ])
+
+    // Act
+    matcher.match('POST', 'http://localhost:3000/api/todo')
+    const second = matcher.match('POST', 'http://localhost:3000/api/todo')
+
+    // Assert — a second POST is an honest miss, not a silent replay.
+    expect(second).toBeNull()
   })
 })

@@ -266,10 +266,17 @@ export class RedebugSession {
       if (details.isMainFrame) console.log('[redebug] main-frame navigation:', details.url.slice(0, 140))
     })
     // WebSockets bypass the Fetch interceptor — a dev-server HMR socket would
-    // stream LIVE code edits into the re-execution, so cancel them outright.
+    // stream LIVE code edits into the re-execution. Cancelling them is wrong
+    // too: Next dev's RSC debug channel treats a closed socket as
+    // end-of-stream and rejects every pending flight row ("Connection
+    // closed." → global-error). Parking the connect forever (never invoking
+    // the callback) leaves the channel open-and-empty, which Next itself uses
+    // as its safe fallback: the page renders from the response body alone.
     window.webContents.session.webRequest.onBeforeRequest(
       { urls: ['ws://*/*', 'wss://*/*'] },
-      (_details, callback) => callback({ cancel: true }),
+      () => {
+        /* intentionally never calls callback — the socket hangs in CONNECTING */
+      },
     )
 
     for (const cookie of this.bundle.enclave.cookies) {

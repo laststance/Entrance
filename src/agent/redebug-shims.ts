@@ -180,19 +180,21 @@ interface RedebugShimConfig {
     }
 
     /**
-     * Delivers the dev server's end-of-debug-stream signal: a chunk-less
-     * REACT_DEBUG_CHUNK binary frame ([type 0][idLength u8][id utf8]) closes
-     * that request's debug-channel writer (hot-reloader-app.js). Without it,
-     * a client-side navigation's flight parse parks forever awaiting debug
-     * chunks the faked socket can never produce.
+     * Emits a REACT_DEBUG_CHUNK binary frame ([type 0][idLength u8][id utf8]
+     * [payload bytes…]) into the faked socket — with payload it feeds that
+     * request's debug-channel writer, without payload it closes the writer
+     * (hot-reloader-app.js semantics).
      * @param requestId - value of the nav fetch's x-nextjs-request-id header
+     * @param payloadText - flight rows to stream, or undefined for the close signal
      */
-    deliverDebugChannelClose(requestId: string): void {
+    deliverDebugChannelFrame(requestId: string, payloadText?: string): void {
       const requestIdBytes = new TextEncoder().encode(requestId)
-      const frame = new Uint8Array(2 + requestIdBytes.length)
+      const payloadBytes = payloadText ? new TextEncoder().encode(payloadText) : new Uint8Array(0)
+      const frame = new Uint8Array(2 + requestIdBytes.length + payloadBytes.length)
       frame[0] = 0 // HMR_MESSAGE_SENT_TO_BROWSER.REACT_DEBUG_CHUNK
       frame[1] = requestIdBytes.length
       frame.set(requestIdBytes, 2)
+      frame.set(payloadBytes, 2 + requestIdBytes.length)
       setTimeout(() => {
         const messageEvent = new MessageEvent('message', { data: frame.buffer })
         this.onmessage?.(messageEvent)
@@ -232,7 +234,40 @@ interface RedebugShimConfig {
   const nativeFetch = window.fetch
   window.fetch = function (input: RequestInfo | URL, init?: RequestInit) {
     const requestId = readRequestIdHeader(input, init)
-    if (requestId) activeHmrSocket?.deliverDebugChannelClose(requestId)
-    return nativeFetch.call(this, input, init)
+    const fetchPromise = nativeFetch.call(this, input, init)
+    if (requestId) {
+      // The recorded flight body defers its debug rows (owner/stack/debugInfo)
+      // to a channel stream the recording never captured — element chunks
+      // BLOCK on those refs, so a bare close() rejects them ("Connection
+      // closed." → global-error) and never closing parks the tree forever.
+      // Third way: resolve every body-missing id as null (owners/stacks are
+      // droppable dev metadata), then close — the tree renders debugger-less
+      // and close() finds nothing pending.
+      void fetchPromise.then(async (response) => {
+        try {
+          const bodyText = await response.clone().text()
+          const definedIds = new Set<string>()
+          for (const match of bodyText.matchAll(/^([0-9a-f]+):/gm)) definedIds.add(match[1])
+          const missingIds = new Set<string>()
+          const referencePattern = /"\$(?:L|@|E|F|T|W|B|K|Y|Q|Z)?([0-9a-f]+)(?::[^"]*)?"/g
+          for (const match of bodyText.matchAll(referencePattern)) {
+            if (!definedIds.has(match[1])) missingIds.add(match[1])
+          }
+          if (missingIds.size > 0) {
+            // A well-formed empty ReactComponentInfo: usable both as an
+            // element's owner and as a debugInfo entry (readers touch
+            // .stack/.name/.owner — null entries crash them).
+            const stubDebugRow =
+              ':{"name":"EntranceReplay","env":"Server","key":null,"owner":null,"stack":[],"props":{}}\n'
+            const stubRows = [...missingIds].map((id) => id + stubDebugRow).join('')
+            activeHmrSocket?.deliverDebugChannelFrame(requestId, stubRows)
+          }
+        } catch {
+          /* opaque/aborted response — close alone still unblocks nothing worse */
+        }
+        activeHmrSocket?.deliverDebugChannelFrame(requestId)
+      })
+    }
+    return fetchPromise
   }
 })()

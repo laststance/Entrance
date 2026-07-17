@@ -65,6 +65,19 @@ const kindLabel = (bucket) => {
   return '実行中'
 }
 
+// Derive display from the authoritative source URL (the Mode B collector's
+// `display` field truncates some paths, e.g. electron/utils/… → utils/…, and
+// percent-encodes route groups). Mirrors verify-against-recording's toDisplay
+// so §2/§3 displays align with the evidence-map keys.
+const safeDecode = (s) => { try { return decodeURIComponent(s) } catch { return s } }
+const normalizeDisplay = (rawSource, fallbackDisplay) => {
+  if (!rawSource) return fallbackDisplay
+  let s = safeDecode(String(rawSource).replace(/^file:\/\//, ''))
+  const idx = s.lastIndexOf('corelive/')
+  if (idx >= 0) s = s.slice(idx + 'corelive/'.length)
+  return /^(src|electron)\//.test(s) ? s : fallbackDisplay
+}
+
 // evidence[display][line] = {sources:[C|V|S], cpuFirst?, cpuLast?, rrwebFirst?, stackFirst?}
 const evidence = evidenceDoc.evidence
 /** Direct-recording basis codes for a covered (display, line): always includes M. */
@@ -175,8 +188,9 @@ for (const bucket of timeline.buckets) {
   const range = `${bucket.approx ? '≈' : ''}${clock(bucket.tStart)}–${clock(bucket.tEnd)}`
   const label = kindLabel(bucket)
   for (const file of bucket.files) {
-    const hasDirect = file.lines.some((line) => evidence[file.display]?.[line])
-    p(`| ${range} | ${label} | \`${file.display}\` | ${compressLines(file.lines)} | ${hasDirect ? '★' : ''} |`)
+    const display = normalizeDisplay(file.source, file.display)
+    const hasDirect = file.lines.some((line) => evidence[display]?.[line])
+    p(`| ${range} | ${label} | \`${display}\` | ${compressLines(file.lines)} | ${hasDirect ? '★' : ''} |`)
   }
 }
 p('')
@@ -185,7 +199,7 @@ p('')
 p('## 3. ファイル別逆引き（ファイル → 全実行行 → 実行時刻 → 直接証拠）')
 p('')
 for (const source of timeline.sources) {
-  const display = source.display
+  const display = normalizeDisplay(source.source, source.display)
   p(`### \`${display}\``)
   p('')
   p(`- **全実行行** (${source.allLines.length}行): ${compressLines(source.allLines)}`)

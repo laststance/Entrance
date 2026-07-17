@@ -20,6 +20,15 @@ describe('code panel tab label (source path shortening)', () => {
     )
   })
 
+  it('keeps the electron/ root instead of truncating to a nested anchor dir', () => {
+    // Arrange + Act + Assert
+    // Regression: `utils` is an anchor too, so the outer `electron` root must be
+    // listed or the label collapses to `utils/electron-client.ts` (wrong file).
+    expect(
+      formatSourcePath('file:///Users/w/laststance/corelive/electron/utils/electron-client.ts'),
+    ).toBe('electron/utils/electron-client.ts')
+  })
+
   it('decodes percent-encoded names from Turbopack sources', () => {
     // Arrange + Act + Assert
     expect(formatSourcePath('file:///w/proj/app/favicon.ico.mjs%20%28image%29')).toBe(

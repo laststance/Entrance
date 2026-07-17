@@ -1,7 +1,11 @@
-/** Directory names that mark the interesting part of an absolute source path. */
+/** Directory names that mark the interesting part of an absolute source path.
+ * Top-level source roots (`src`, `electron`) MUST be listed so a nested anchor
+ * (e.g. `electron/utils/…`) isn't picked over the outer root, truncating the
+ * path to `utils/…`. */
 const PROJECT_ANCHOR_SEGMENTS = new Set([
   'app',
   'src',
+  'electron',
   'pages',
   'components',
   'lib',

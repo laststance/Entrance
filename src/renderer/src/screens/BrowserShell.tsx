@@ -88,10 +88,12 @@ export function BrowserShell() {
           )}
         </div>
 
-        {/* P0 acceptance: a Base UI popover must render ABOVE the webview and receive clicks */}
-        <div className="app-no-drag">
-          <OverlaySmokePopover />
-        </div>
+        {/* P0 overlay smoke probe — opt-in via VITE_ENTRANCE_SMOKE_UI=1; the mock 1d toolbar has no such control */}
+        {import.meta.env.VITE_ENTRANCE_SMOKE_UI === '1' && (
+          <div className="app-no-drag">
+            <OverlaySmokePopover />
+          </div>
+        )}
 
         <div className="flex-1" />
 
@@ -322,7 +324,11 @@ function ToolbarIconButton({
   )
 }
 
-/** Popover that intentionally overlaps the webview to prove DOM overlays win (spike #5). */
+/**
+ * Popover that intentionally overlaps the webview to prove DOM overlays win
+ * (spike #5). Smoke-test UI, not product UI — rendered only when
+ * VITE_ENTRANCE_SMOKE_UI=1 so the normal workspace matches mock 1d.
+ */
 function OverlaySmokePopover() {
   const [overlayClickCount, setOverlayClickCount] = useState(0)
   return (
@@ -360,7 +366,8 @@ function OverlaySmokePopover() {
 /** P0 CDP live log — proves the attach smoke test end-to-end; hidden while recording. */
 function CdpEventLog() {
   const rows = useSyncExternalStore(cdpLogStore.subscribe, cdpLogStore.getSnapshot)
-  const [isCollapsed, setIsCollapsed] = useState(false)
+  // Collapsed by default: the embedded target is the hero (mock 1d) — the feed expands on demand.
+  const [isCollapsed, setIsCollapsed] = useState(true)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
 
   // Pin to bottom as rows stream in.

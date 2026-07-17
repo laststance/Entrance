@@ -352,6 +352,7 @@ export class RedebugSession {
         params as {
           requestId: string
           request?: { url?: string; method?: string }
+          resourceType?: string
         },
       )
     } else if (method === 'Debugger.paused') {
@@ -378,6 +379,7 @@ export class RedebugSession {
   private async onRequestPaused(params: {
     requestId: string
     request?: { url?: string; method?: string }
+    resourceType?: string
   }): Promise<void> {
     const window = this.window
     if (!window || window.isDestroyed()) return
@@ -388,7 +390,12 @@ export class RedebugSession {
 
     const recorded = this.matcher.match(method, url)
     if (!recorded) {
-      this.diverge('network', `録画にないリクエスト: ${method} ${url.slice(0, 120)}`)
+      // resourceType tells Document reload apart from an RSC fetch — without it
+      // this message is undiagnosable when the URL alone looks legitimate.
+      this.diverge(
+        'network',
+        `録画にないリクエスト: ${method} ${url.slice(0, 120)}${params.resourceType ? ` (${params.resourceType})` : ''}`,
+      )
       await send('Fetch.failRequest', {
         requestId: params.requestId,
         errorReason: 'BlockedByClient',

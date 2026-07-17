@@ -25,6 +25,7 @@ import {
   type LaneEvent,
   type RecordingManifest,
 } from '@shared/envelope'
+import { NEXT_DEBUG_CHANNEL_KEY_PREFIX } from '@shared/constants'
 import { PUSH, type AttachRequest, type RecStatus } from '@shared/ipc'
 
 import {
@@ -186,6 +187,9 @@ export class RecordingManager {
     // Screencast + profiler + snapshot are best-effort: their loss degrades the
     // filmstrip / highlight / Mode B seeding, never the recording itself.
     const session = this.session
+    // Cache off while recording — cached subresources would be invisible to
+    // the network lane and break Mode B's cold boot (served-from-recording).
+    void session.setNetworkCacheDisabled(true).catch(() => {})
     void session.startScreencast().catch(() => {})
     void session
       .startProfiler()
@@ -292,6 +296,22 @@ export class RecordingManager {
     }
 
     session.evaluateInPage(AGENT_REC_STOP_EXPRESSION)
+    // Next persists the document's debug-channel entry only after hydration,
+    // so the start-time snapshot misses it — and a missing entry makes Mode B's
+    // restore silently location.reload(). Swept here at stop, when it exists.
+    const debugChannelEntries = await session.evaluateWithResult<Record<string, string>>(
+      DEBUG_CHANNEL_SNAPSHOT_EXPRESSION,
+    )
+    if (debugChannelEntries && Object.keys(debugChannelEntries).length > 0) {
+      session.appendEnclaveEntry({
+        kind: 'debug-channel-snapshot',
+        tMono: session.sequencer.nowMono(),
+        recordingId: active.recordingId,
+        sessionStorage: debugChannelEntries,
+      })
+    }
+    // Normal browsing gets its HTTP cache back once the recording ends.
+    void session.setNetworkCacheDisabled(false).catch(() => {})
     void session.stopScreencast().catch(() => {})
     // Grab the CPU profile before closing lanes — its samples power the
     // function-level highlight (decision 3); calibration pair maps V8 time → tMono.
@@ -502,6 +522,19 @@ const PAGE_STATE_SNAPSHOT_EXPRESSION = `(() => {
     viewport: { width: innerWidth, height: innerHeight, devicePixelRatio: devicePixelRatio },
     userAgent: navigator.userAgent,
   }
+})()`
+
+/** Stop-time sweep of Next debug-channel entries (they exist only post-hydration). */
+const DEBUG_CHANNEL_SNAPSHOT_EXPRESSION = `(() => {
+  const entries = {}
+  try {
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i)
+      if (key !== null && key.startsWith('${NEXT_DEBUG_CHANNEL_KEY_PREFIX}'))
+        entries[key] = sessionStorage.getItem(key) ?? ''
+    }
+  } catch {}
+  return entries
 })()`
 
 /** URL origin, or '' when the URL is unparsable (about:blank etc.). */

@@ -3,6 +3,7 @@ import { join } from 'node:path'
 
 import { z } from 'zod'
 
+import { NEXT_DEBUG_CHANNEL_KEY_PREFIX } from '@shared/constants'
 import {
   parseLaneJsonl,
   recordingManifestSchema,
@@ -69,6 +70,12 @@ const enclaveKeystrokeSchema = z.looseObject({
   code: z.string(),
   key: z.string(),
 })
+// Stop-time sweep of Next debug-channel sessionStorage entries — they exist
+// only post-hydration, so the start-time state-snapshot never has them.
+const enclaveDebugChannelSchema = z.looseObject({
+  kind: z.literal('debug-channel-snapshot'),
+  sessionStorage: z.record(z.string(), z.string()).catch({}),
+})
 
 /**
  * Reads manifest + Mode B lanes + enclave off disk.
@@ -130,6 +137,17 @@ export function readRedebugBundle(recordingDirPath: string): RedebugBundle {
     const keystroke = enclaveKeystrokeSchema.safeParse(row)
     if (keystroke.success) {
       enclave.keystrokes.push({ code: keystroke.data.code, key: keystroke.data.key })
+      continue
+    }
+    const debugChannel = enclaveDebugChannelSchema.safeParse(row)
+    if (debugChannel.success) {
+      // Overlay AFTER the state-snapshot line (stop follows start in append
+      // order) so the document's real debug-channel chunks win — restoring
+      // them is what keeps Next from silently location.reload()ing in Mode B.
+      // Prefix-filtered: a hostile bundle must not smuggle arbitrary keys here.
+      for (const [key, value] of Object.entries(debugChannel.data.sessionStorage)) {
+        if (key.startsWith(NEXT_DEBUG_CHANNEL_KEY_PREFIX)) enclave.sessionStorage[key] = value
+      }
     }
   }
 

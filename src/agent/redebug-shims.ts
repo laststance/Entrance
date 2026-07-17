@@ -6,6 +6,8 @@
  * `__ENTRANCE_REDEBUG_CONFIG__` is replaced with JSON by RedebugSession.
  */
 
+import { NEXT_DEBUG_CHANNEL_KEY_PREFIX } from '../shared/constants'
+
 interface RedebugShimConfig {
   /** Recording start wall-clock ms — Date.now() resumes from here. */
   t0Wall: number
@@ -93,6 +95,21 @@ interface RedebugShimConfig {
           },
         }),
     )
+  }
+
+  // The cache-restore path above only works when the snapshot happens to hold
+  // the recorded document's own `__next_debug_channel:*` entry — it usually
+  // holds the PREVIOUS page's (Next persists the entry after our snapshot ran),
+  // and on a missing entry Next silently location.reload()s (debug-channel.js),
+  // a navigation no recording can satisfy. Answering an absent entry with '[]'
+  // yields an empty already-closed debug stream — the same observable state the
+  // fake HMR socket's end-frame produces for client navs — so hydration
+  // proceeds debugger-less instead of reloading.
+  const nativeGetItem = Storage.prototype.getItem
+  Storage.prototype.getItem = function (key: string) {
+    const value = nativeGetItem.call(this, key)
+    if (value === null && key.startsWith(NEXT_DEBUG_CHANNEL_KEY_PREFIX)) return '[]'
+    return value
   }
 
   // Dev-server HMR sockets are blocked at the session level (live code pushes

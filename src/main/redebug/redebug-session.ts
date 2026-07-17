@@ -26,6 +26,8 @@ import {
   REDEBUG_MAX_CALL_FRAMES,
   REDEBUG_MAX_DIVERGENCES,
   REDEBUG_MAX_SCOPE_VARIABLES,
+  REDEBUG_NAV_ASSIST_SETTLE_MS,
+  REDEBUG_NAV_ASSIST_TIMEOUT_MS,
   REDEBUG_PASTE_FALLBACK_CHARS,
   REDEBUG_PASTE_LOOKAHEAD_MS,
   REDEBUG_PAUSE_FALLBACK_MS,
@@ -179,6 +181,9 @@ export class RedebugSession {
       return
     }
     this.divergences.push({ oracle, message })
+    // Headless harvest reads stdout — surfacing each divergence as it lands
+    // beats reconstructing it from a finalize that may never run.
+    if (this.collector) console.log('[harvest] divergence:', oracle, message)
     this.pushStatus()
   }
 
@@ -249,6 +254,17 @@ export class RedebugSession {
     // Re-executed content must stay inside the recording: block window.open
     // and any navigation the Fetch interceptor doesn't serve.
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    // Death/exit visibility: a silent renderer crash or an unexpected hard
+    // navigation is otherwise indistinguishable from a stalled replay.
+    window.webContents.on('render-process-gone', (_event, details) => {
+      console.log('[redebug] render-process-gone:', JSON.stringify(details))
+    })
+    window.on('closed', () => {
+      console.log('[redebug] hidden window closed')
+    })
+    window.webContents.on('did-start-navigation', (details) => {
+      if (details.isMainFrame) console.log('[redebug] main-frame navigation:', details.url.slice(0, 140))
+    })
     // WebSockets bypass the Fetch interceptor — a dev-server HMR socket would
     // stream LIVE code edits into the re-execution, so cancel them outright.
     window.webContents.session.webRequest.onBeforeRequest(
@@ -494,6 +510,33 @@ export class RedebugSession {
       window.webContents.debugger.sendCommand(method, sendParams)
     const method = params.request?.method ?? 'GET'
     const url = params.request?.url ?? ''
+    if (this.collector) console.log('[harvest] paused:', method, params.resourceType ?? '', url.slice(0, 110))
+
+    // Telemetry beacons are blocked whole (never fulfilled, never live):
+    // fulfilling a CORS-preflighted exchange from the interceptor is what
+    // crashed the browser process (CrBrowserMain SIGSEGV on freed memory —
+    // the preflight controller outlives its request), and the page treats a
+    // failed batch as fire-and-forget, so blocking is invisible to the app.
+    let hostname = ''
+    try {
+      hostname = new URL(url).hostname
+    } catch {
+      /* non-URL scheme (about:, data:) — fall through to the matcher */
+    }
+    if (/(^|\.)clerk-telemetry\.com$/.test(hostname)) {
+      await send('Fetch.failRequest', {
+        requestId: params.requestId,
+        errorReason: 'BlockedByClient',
+      }).catch(() => {})
+      return
+    }
+    // Remaining CORS preflights also stay off the fulfill path: a page can't
+    // observe a preflight response, so continueRequest lets them resolve (or
+    // fail) natively without ever mixing interception into preflight state.
+    if (method === 'OPTIONS') {
+      await send('Fetch.continueRequest', { requestId: params.requestId }).catch(() => {})
+      return
+    }
 
     const recorded = this.matcher.match(method, url)
     if (!recorded) {
@@ -546,6 +589,7 @@ export class RedebugSession {
       responseHeaders,
       body: bodyBase64,
     }).catch(() => {})
+    if (this.collector) console.log('[harvest] fulfilled:', recorded.status, method, url.slice(0, 110))
   }
 
   /**
@@ -586,17 +630,25 @@ export class RedebugSession {
       const recordedGapMs = Math.min(event.tMono - previousTMono, REDEBUG_INPUT_MAX_WAIT_MS)
       previousTMono = event.tMono
       const waitMs = Math.max(recordedGapMs, REDEBUG_INPUT_SETTLE_MS)
-      if (harvestContext) {
+      // Crash bisection: ENTRANCE_HARVEST_DIAG_NO_TAKES=1 replays inputs with
+      // coverage takes suppressed, separating "the page/replay crashes" from
+      // "marshalling takePreciseCoverage results crashes".
+      const suppressTakes = process.env.ENTRANCE_HARVEST_DIAG_NO_TAKES === '1'
+      if (harvestContext && !suppressTakes) {
         await this.waitWithInterimTakes(harvestContext, waitMs, event.tMono - t0Mono)
       } else {
         await new Promise((resolve) => setTimeout(resolve, waitMs))
       }
       if (index === 0) await this.waitForHydration(input.x ?? 0, input.y ?? 0)
       if (this.isDisposed || this.isPausedNow()) return true
+      // The recording may have soft-navigated inside this gap — if the
+      // re-execution didn't reproduce it, replay the route change now so the
+      // upcoming input lands on the page it was recorded against.
+      await this.assistMissedNavigation(event.tMono)
 
       // Close the bucket ending at this event: everything since the previous
       // boundary executed inside (lastBoundary, thisEvent] on the recorded clock.
-      if (harvestContext) {
+      if (harvestContext && !suppressTakes) {
         const eventOffset = event.tMono - t0Mono
         await harvestContext.collector.take(
           {
@@ -641,7 +693,10 @@ export class RedebugSession {
         return send(method, sendParams)
       }
 
-      if (harvestContext) await this.captureInputDiag(send, index, event.seq, input)
+      if (harvestContext) {
+        console.log(`[harvest] input #${index} seq ${event.seq} ${input.kind}`)
+        await this.captureInputDiag(send, index, event.seq, input)
+      }
       try {
         if (input.kind === 'click') {
           let clickX = input.x ?? 0
@@ -690,10 +745,12 @@ export class RedebugSession {
             // rrweb input event that recorded the result (the pasted content
             // itself is masked — never recorded).
             await armPause()
+            if (harvestContext) console.log('[harvest] paste: focusing')
             await this.focusVisibleEmptyFieldIfBlurred(post)
-            await post('Input.insertText', {
-              text: 'x'.repeat(this.pastedLengthNear(event.tMono)),
-            })
+            const pastedLength = this.pastedLengthNear(event.tMono)
+            if (harvestContext) console.log('[harvest] paste: inserting', pastedLength, 'chars')
+            await post('Input.insertText', { text: 'x'.repeat(pastedLength) })
+            if (harvestContext) console.log('[harvest] paste: inserted')
           } else {
             const modifierBits =
               (input.modifiers?.alt ? 1 : 0) |
@@ -890,6 +947,98 @@ export class RedebugSession {
         return
       }
       await new Promise((resolve) => setTimeout(resolve, REDEBUG_HYDRATION_POLL_INTERVAL_MS))
+    }
+  }
+
+  /** Same-origin RSC nav fetches from the recording — (tMono, pathname) checkpoints re-execution must reach. */
+  private navCheckpoints: Array<{ tMono: number; path: string }> | null = null
+  private readonly assistedNavPaths = new Set<string>()
+
+  /**
+   * Derives the recorded soft-navigation timeline from the network lane: a
+   * same-origin `_rsc` GET marks the app router landing on that pathname.
+   * Consecutive fetches for one path collapse into a single checkpoint.
+   * @returns checkpoints in recorded order
+   * @example [{ tMono: 28917, path: '/home' }]
+   */
+  private buildNavCheckpoints(): Array<{ tMono: number; path: string }> {
+    let origin = ''
+    try {
+      origin = new URL(this.bundle.manifest.targetUrl).origin
+    } catch {
+      return []
+    }
+    const rscFetchSchema = z.looseObject({
+      phase: z.literal('request'),
+      method: z.literal('GET'),
+      url: z.string(),
+    })
+    const checkpoints: Array<{ tMono: number; path: string }> = []
+    for (const event of this.bundle.networkLane) {
+      const request = rscFetchSchema.safeParse(event.payload)
+      if (!request.success) continue
+      try {
+        const url = new URL(request.data.url)
+        if (url.origin !== origin || !url.searchParams.has('_rsc')) continue
+        const previous = checkpoints[checkpoints.length - 1]
+        if (previous?.path === url.pathname) continue
+        checkpoints.push({ tMono: event.tMono, path: url.pathname })
+      } catch {
+        /* non-URL row — skip */
+      }
+    }
+    return checkpoints
+  }
+
+  /**
+   * Replays a recorded soft navigation the re-execution failed to reproduce
+   * (e.g. an auth library's redirect glue stalling on replay-only state):
+   * pushes the recorded route via the app router and waits for it to land.
+   * Never silent — every assist is flagged as a divergence. Runs before each
+   * input dispatch with that input's recorded tMono.
+   * @param upToTMono - recorded clock bound; checkpoints beyond it stay pending
+   * @example await this.assistMissedNavigation(event.tMono)
+   */
+  private async assistMissedNavigation(upToTMono: number): Promise<void> {
+    this.navCheckpoints ??= this.buildNavCheckpoints()
+    const window = this.window
+    if (!window || window.isDestroyed()) return
+    const currentPathname = async (): Promise<string> => {
+      try {
+        const result = (await window.webContents.debugger.sendCommand('Runtime.evaluate', {
+          expression: 'location.pathname',
+          returnByValue: true,
+          silent: true,
+        })) as { result?: { value?: unknown } }
+        return typeof result.result?.value === 'string' ? result.result.value : ''
+      } catch {
+        return ''
+      }
+    }
+    for (const checkpoint of this.navCheckpoints) {
+      if (checkpoint.tMono > upToTMono) break
+      if (this.assistedNavPaths.has(checkpoint.path)) continue
+      this.assistedNavPaths.add(checkpoint.path)
+      if ((await currentPathname()) === checkpoint.path) continue
+      this.diverge(
+        'network',
+        `再実行が録画のページ遷移を再現しなかったため補正しました: ${checkpoint.path}`,
+      )
+      console.log('[redebug] nav-assist →', checkpoint.path)
+      try {
+        await window.webContents.debugger.sendCommand('Runtime.evaluate', {
+          expression: `window.next?.router?.push(${JSON.stringify(checkpoint.path)})`,
+          silent: true,
+        })
+      } catch {
+        continue
+      }
+      // Wait for the route to land, then let the destination mount.
+      for (let waitedMs = 0; waitedMs < REDEBUG_NAV_ASSIST_TIMEOUT_MS; waitedMs += REDEBUG_HYDRATION_POLL_INTERVAL_MS) {
+        if ((await currentPathname()) === checkpoint.path) break
+        await new Promise((resolve) => setTimeout(resolve, REDEBUG_HYDRATION_POLL_INTERVAL_MS))
+      }
+      await new Promise((resolve) => setTimeout(resolve, REDEBUG_NAV_ASSIST_SETTLE_MS))
     }
   }
 

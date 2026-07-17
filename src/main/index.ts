@@ -147,5 +147,12 @@ void app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   // Single-window dev tool: quitting on close matches user expectation even on macOS.
+  console.log('[entrance] window-all-closed → quit')
   app.quit()
 })
+
+// Exit forensics: a harvest run that dies silently (exit 0, no crash line)
+// can only be traced by logging every quit path the runtime offers.
+app.on('before-quit', () => console.log('[entrance] before-quit'))
+app.on('quit', (_event, exitCode) => console.log('[entrance] quit, code', exitCode))
+process.on('exit', (exitCode) => console.log('[entrance] process exit', exitCode))

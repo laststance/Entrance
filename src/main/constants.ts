@@ -99,6 +99,10 @@ export const REDEBUG_KEY_VIRTUAL_CODES: Record<string, number> = {
   Delete: 46,
   Meta: 91,
 }
+/** Nav assist: how long to wait for the app router to land on the recorded route. */
+export const REDEBUG_NAV_ASSIST_TIMEOUT_MS = 5000
+/** Nav assist: extra settle after the route lands so the destination mounts/hydrates. */
+export const REDEBUG_NAV_ASSIST_SETTLE_MS = 750
 /** Paste replay: how far past the Cmd+V chord to search rrweb for the input event holding the pasted field's new length. */
 export const REDEBUG_PASTE_LOOKAHEAD_MS = 2000
 /** Paste replay: stand-in text length when no rrweb input event confirms one (pasted content is masked, never recorded). */

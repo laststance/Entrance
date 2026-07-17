@@ -227,6 +227,18 @@ export class TargetSession {
     })
   }
 
+  /**
+   * Recording integrity: HTTP-cache-served subresources never surface on the
+   * Network domain, so Mode B's cold re-execution would miss them (broken
+   * boot). Cache is forced off for the duration of a recording only.
+   */
+  async setNetworkCacheDisabled(disabled: boolean): Promise<void> {
+    if (this.isDisposed || this.target.isDestroyed()) return
+    await this.target.debugger.sendCommand('Network.setCacheDisabled', {
+      cacheDisabled: disabled,
+    })
+  }
+
   async stopScreencast(): Promise<void> {
     await this.target.debugger.sendCommand('Page.stopScreencast')
   }

@@ -72,7 +72,9 @@
     --secondary: #232a32;
     --secondary-foreground: #e6e9ee;
     --muted: #232a32;
-    --muted-foreground: #5f6975;
+    /* Mock sampled #5f6975 but that is 3.04:1 on --background (fails WCAG AA);
+       same slate hue lifted to 5.1:1 on background / 4.7:1 on raised surfaces. */
+    --muted-foreground: #848e9a;
     --accent: #232a32;
     --accent-foreground: #e6e9ee;
     --destructive: #ff5c5c;

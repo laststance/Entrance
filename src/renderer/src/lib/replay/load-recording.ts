@@ -74,12 +74,7 @@ export async function loadRecording(recordingId: string): Promise<LoadedRecordin
       if (parsed.success) cpuProfile = parsed.data
     })(),
     (async () => {
-      const coverageResponse = await fetch(
-        `entrance://recording/${recordingId}/${COVERAGE_TIMELINE_FILE}`,
-      )
-      if (!coverageResponse.ok) return
-      const parsed = coverageTimelineSchema.safeParse(await coverageResponse.json())
-      if (parsed.success) coverageTimeline = parsed.data
+      coverageTimeline = await loadCoverageTimeline(recordingId)
     })(),
   ])
 
@@ -93,4 +88,20 @@ export async function loadRecording(recordingId: string): Promise<LoadedRecordin
     cpuProfile,
     coverageTimeline,
   }
+}
+
+/**
+ * Fetches the Mode B coverage artifact alone — the auto-harvest path re-reads
+ * it after a harvest finishes without reloading the whole bundle.
+ * @param recordingId - bundle directory name
+ * @returns parsed timeline, or null when absent/invalid (pre-harvest recordings)
+ * @example (await loadCoverageTimeline('01JZX…'))?.buckets.length
+ */
+export async function loadCoverageTimeline(recordingId: string): Promise<CoverageTimeline | null> {
+  const coverageResponse = await fetch(
+    `entrance://recording/${recordingId}/${COVERAGE_TIMELINE_FILE}`,
+  )
+  if (!coverageResponse.ok) return null
+  const parsed = coverageTimelineSchema.safeParse(await coverageResponse.json())
+  return parsed.success ? parsed.data : null
 }

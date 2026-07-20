@@ -148,6 +148,7 @@ export class RedebugSession {
     if (this.isDisposed) return
     this.onStatus({
       phase: this.phase,
+      mode: this.request.harvest ? 'harvest' : 'debug',
       pause: this.pauseState,
       divergences: [...this.divergences],
       error: this.lastError,
@@ -979,7 +980,7 @@ export class RedebugSession {
    * @example [{ tMono: 28917, path: '/home' }]
    */
   private buildNavCheckpoints(): Array<{ tMono: number; path: string }> {
-    let origin = ''
+    let origin: string
     try {
       origin = new URL(this.bundle.manifest.targetUrl).origin
     } catch {

@@ -12,7 +12,7 @@ import {
   updateRecordingMetaSchema,
   type StorageUsage,
 } from '@shared/ipc'
-import { redebugStepSchema, startRedebugSchema } from '@shared/redebug'
+import { ensureHarvestSchema, redebugStepSchema, startRedebugSchema } from '@shared/redebug'
 
 import { STORAGE_QUOTA_BYTES } from './constants'
 import {
@@ -137,4 +137,10 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle(IPC.redebugStop, async () => redebugManager.stop())
+
+  ipcMain.handle(IPC.redebugEnsureHarvest, async (_ev, raw: unknown) => {
+    const parsed = ensureHarvestSchema.safeParse(raw)
+    if (!parsed.success) return { started: false }
+    return redebugManager.ensureHarvest(parsed.data.recordingId)
+  })
 }

@@ -25,6 +25,7 @@ import { formatRecClock } from '../lib/format-rec-clock'
 import { loadRecording } from '../lib/replay/load-recording'
 import { playheadStore } from '../lib/replay/playhead-store'
 import { createSourceResolver } from '../lib/replay/source-resolver'
+import { useAutoHarvest } from '../lib/replay/use-auto-harvest'
 import { replayClosed } from '../store/appSlice'
 import { useAppDispatch, useAppSelector } from '../store'
 
@@ -134,6 +135,11 @@ function ReplayLoaded({ loadPromise }: { loadPromise: Promise<LoadedRecording> }
     () => createSourceResolver(recording.manifest.recordingId, recording.sourcemapIndex),
     [recording],
   )
+  // First open of a recording collects coverage in the background (P5b).
+  const { coverageTimeline, autoHarvest } = useAutoHarvest(
+    recording.manifest.recordingId,
+    recording.coverageTimeline,
+  )
   const seekTo = (tMonoOffsetMs: number): void => playerRef.current?.seekTo(tMonoOffsetMs)
 
   return (
@@ -180,7 +186,8 @@ function ReplayLoaded({ loadPromise }: { loadPromise: Promise<LoadedRecording> }
             items={transcriptItems}
             anchors={codeAnchors}
             profileTimeline={profileTimeline}
-            coverageTimeline={recording.coverageTimeline}
+            coverageTimeline={coverageTimeline}
+            autoHarvest={autoHarvest}
             resolver={sourceResolver}
             recordingId={recording.manifest.recordingId}
             t0Mono={recording.manifest.t0Mono}

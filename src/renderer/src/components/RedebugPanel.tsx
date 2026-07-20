@@ -32,7 +32,15 @@ export function RedebugPanel({
 }) {
   const [status, setStatus] = useState<RedebugStatus | null>(null)
 
-  useEffect(() => window.entrance.onRedebugStatus(setStatus), [])
+  // Auto-harvest statuses render in DebugSidePanel's banner — this panel owns
+  // only user-started sessions, so a background harvest never hides the start button.
+  useEffect(
+    () =>
+      window.entrance.onRedebugStatus((incoming) => {
+        if (incoming.mode === 'debug') setStatus(incoming)
+      }),
+    [],
+  )
   // Leaving the screen kills the hidden window.
   useEffect(
     () => () => {
@@ -59,7 +67,7 @@ export function RedebugPanel({
     const anchorIsFresh =
       anchor !== null && playheadMs - anchor.tMonoOffset <= CODE_ANCHOR_FRESH_WINDOW_MS
     const topFrame = anchorIsFresh ? anchor.frames[0] : undefined
-    setStatus({ phase: 'starting', divergences: [] })
+    setStatus({ phase: 'starting', mode: 'debug', divergences: [] })
     void window.entrance.redebugStart({
       recordingId,
       runToSeq,

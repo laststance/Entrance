@@ -33,6 +33,26 @@ export const redebugStepSchema = z.object({
 })
 export type RedebugStepRequest = z.infer<typeof redebugStepSchema>
 
+/**
+ * Renderer → main: auto-harvest entry on replay-screen open — run a coverage
+ * harvest unless the artifact already exists or a user session would be clobbered.
+ */
+export const ensureHarvestSchema = z.object({ recordingId: z.string().min(1) })
+export type EnsureHarvestRequest = z.infer<typeof ensureHarvestSchema>
+
+/** Why ensureHarvest skipped (started === false without error). */
+export type EnsureHarvestSkipReason =
+  | 'coverage-exists'
+  | 'debug-session-active'
+  | 'already-harvesting'
+
+export interface EnsureHarvestResult {
+  started: boolean
+  reason?: EnsureHarvestSkipReason
+  /** Set when a start was attempted but failed (bundle unreadable etc.). */
+  error?: string
+}
+
 /** One variable in a paused scope (already stringified — renderer never gets live handles). */
 export interface RedebugVariable {
   name: string
@@ -74,6 +94,13 @@ export type RedebugPhase =
 /** Main → renderer status push (single channel; renderer renders it verbatim). */
 export interface RedebugStatus {
   phase: RedebugPhase
+  /**
+   * Which run produced this status: 'debug' = user-started Mode B session
+   * (RedebugPanel renders it), 'harvest' = coverage collection (auto or
+   * headless; DebugSidePanel's banner renders it). Consumers filter on this so
+   * an auto-harvest never hijacks the debug controls.
+   */
+  mode: 'debug' | 'harvest'
   /** Set while phase === 'paused'. */
   pause?: {
     reason: string

@@ -1,6 +1,12 @@
 import { z } from 'zod'
 
-import type { RedebugStatus, RedebugStepRequest, StartRedebugRequest } from './redebug'
+import type {
+  EnsureHarvestRequest,
+  EnsureHarvestResult,
+  RedebugStatus,
+  RedebugStepRequest,
+  StartRedebugRequest,
+} from './redebug'
 
 /**
  * Control-plane IPC contract shared by main/preload/renderer (spec decision 12).
@@ -172,6 +178,7 @@ export const IPC = {
   redebugStart: 'redebug:start',
   redebugStep: 'redebug:step',
   redebugStop: 'redebug:stop',
+  redebugEnsureHarvest: 'redebug:ensure-harvest',
 } as const
 
 /** main → renderer push channels. */
@@ -203,6 +210,8 @@ export interface EntranceApi {
   redebugStart: (req: StartRedebugRequest) => Promise<{ ok: boolean; error?: string }>
   redebugStep: (req: RedebugStepRequest) => Promise<{ ok: boolean }>
   redebugStop: () => Promise<{ ok: boolean }>
+  /** Auto coverage harvest on replay open — no-op when coverage exists or a debug session is live. */
+  redebugEnsureHarvest: (req: EnsureHarvestRequest) => Promise<EnsureHarvestResult>
   onCdpEvent: (cb: (ev: CdpEventSummary) => void) => () => void
   onTargetGone: (cb: () => void) => () => void
   onRecStatus: (cb: (status: RecStatus) => void) => () => void

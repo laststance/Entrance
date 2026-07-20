@@ -1,10 +1,12 @@
 import { memo, useMemo, useState, useSyncExternalStore } from 'react'
 
+import { Loader2 } from 'lucide-react'
 import { Virtuoso } from 'react-virtuoso'
 
 import type { CodeAnchor, CodeFrame } from '@shared/code-anchors'
 import type { CoverageTimeline } from '@shared/coverage-timeline'
 import type { ProfileTimeline } from '@shared/cpuprofile-timeline'
+import type { RedebugStatus } from '@shared/redebug'
 import type { ReplayLaneEvent } from '@shared/replay'
 import type { TranscriptItem } from '@shared/transcript-items'
 import { transcriptIndexAt } from '@shared/transcript-items'
@@ -43,6 +45,7 @@ export function DebugSidePanel({
   anchors,
   profileTimeline,
   coverageTimeline,
+  autoHarvest,
   resolver,
   recordingId,
   t0Mono,
@@ -54,6 +57,8 @@ export function DebugSidePanel({
   profileTimeline: ProfileTimeline | null
   /** Mode B precise-coverage artifact — when present it replaces the sampling code view. */
   coverageTimeline: CoverageTimeline | null
+  /** Live auto-harvest status (first open of a recording) — renders the collection banner. */
+  autoHarvest: RedebugStatus | null
   resolver: SourceResolver
   recordingId: string
   t0Mono: number
@@ -93,6 +98,8 @@ export function DebugSidePanel({
           anchors={anchors}
           onPauseFramesChangeAction={setPauseFrames}
         />
+        {/* First-open coverage collection strip — gone once the artifact lands. */}
+        {!coverageTimeline && autoHarvest && <AutoHarvestBanner status={autoHarvest} />}
         {/* Priority (decision 3 + coverage goal): Mode B pause frames > precise
             coverage timeline > sampling/anchor CodePanel. */}
         {pauseFrames || !coverageTimeline ? (
@@ -107,6 +114,37 @@ export function DebugSidePanel({
         )}
       </div>
       {tab !== 'sources' && <DebugLaneTab tab={tab} items={items} onSeekAction={onSeekAction} />}
+    </div>
+  )
+}
+
+/**
+ * Auto-harvest progress strip: the first open of a recording re-executes it in
+ * a hidden window to collect the coverage timeline — this tells the user why
+ * sources are about to appear (and why they are briefly missing).
+ */
+function AutoHarvestBanner({ status }: { status: RedebugStatus }) {
+  if (status.phase === 'failed') {
+    return (
+      <div className="shrink-0 border-b border-warn/30 bg-warn/10 px-3 py-1.5">
+        <p className="text-[11px] leading-snug text-warn">
+          ⚠ カバレッジ自動収集に失敗しました: {status.error ?? '不明なエラー'}
+          (Mode A 再生には影響しません)
+        </p>
+      </div>
+    )
+  }
+  // Progress counts exist only while inputs replay; other phases show the generic label.
+  const label =
+    status.phase === 'replaying-inputs' && status.harvest
+      ? `カバレッジを自動収集中… 操作 ${status.harvest.inputsDispatched}/${status.harvest.inputsTotal} を再現`
+      : status.phase === 'finished'
+        ? 'カバレッジを読み込み中…'
+        : 'カバレッジを自動収集中…(初回のみ)'
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-b border-border bg-primary/5 px-3 py-1.5">
+      <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
+      <p className="truncate text-[11px] text-muted-foreground">{label}</p>
     </div>
   )
 }

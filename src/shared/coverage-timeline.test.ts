@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import {
   buildLineStarts,
@@ -9,7 +9,7 @@ import {
 } from './coverage-timeline'
 
 describe('flattenExecutedSegments', () => {
-  it('excludes an else-branch V8 reported as a count-0 nested range', () => {
+  test('excludes an else-branch V8 reported as a count-0 nested range', () => {
     // Arrange — executed function [0,100), with a skipped block [40,60).
     const ranges = [
       { startOffset: 0, endOffset: 100, count: 1 },
@@ -26,7 +26,7 @@ describe('flattenExecutedSegments', () => {
     ])
   })
 
-  it('excludes the whole body of a never-invoked nested function', () => {
+  test('excludes the whole body of a never-invoked nested function', () => {
     // Arrange — module code ran [0,200); inner function [50,120) never called.
     const ranges = [
       { startOffset: 0, endOffset: 200, count: 1 },
@@ -43,7 +43,7 @@ describe('flattenExecutedSegments', () => {
     ])
   })
 
-  it('re-includes an executed range nested inside a skipped one', () => {
+  test('re-includes an executed range nested inside a skipped one', () => {
     // Arrange — dead outer block [10,90) containing a hot callback [30,50)
     // (V8 emits this for callbacks defined in skipped code but invoked later).
     const ranges = [
@@ -63,7 +63,7 @@ describe('flattenExecutedSegments', () => {
     ])
   })
 
-  it('returns nothing when the only range never executed', () => {
+  test('returns nothing when the only range never executed', () => {
     // Arrange
     const ranges = [{ startOffset: 0, endOffset: 40, count: 0 }]
 
@@ -71,7 +71,7 @@ describe('flattenExecutedSegments', () => {
     expect(flattenExecutedSegments(ranges)).toEqual([])
   })
 
-  it('merges touching executed ranges from separate functions into one span', () => {
+  test('merges touching executed ranges from separate functions into one span', () => {
     // Arrange — two adjacent invoked functions.
     const ranges = [
       { startOffset: 0, endOffset: 25, count: 1 },
@@ -87,7 +87,7 @@ describe('flattenExecutedSegments', () => {
 })
 
 describe('offsetToLineCol', () => {
-  it('maps an offset in the middle line to its 0-based line and column', () => {
+  test('maps an offset in the middle line to its 0-based line and column', () => {
     // Arrange — "ab\ncde\nf" → line starts [0, 3, 7].
     const lineStarts = buildLineStarts('ab\ncde\nf')
 
@@ -95,7 +95,7 @@ describe('offsetToLineCol', () => {
     expect(offsetToLineCol(lineStarts, 5)).toEqual({ line: 1, column: 2 })
   })
 
-  it('maps offset 0 to line 0 column 0', () => {
+  test('maps offset 0 to line 0 column 0', () => {
     // Arrange
     const lineStarts = buildLineStarts('hello\nworld')
 
@@ -112,7 +112,7 @@ describe('coverageBucketAt', () => {
     files: [],
   })
 
-  it('returns the bucket the playhead is inside', () => {
+  test('returns the bucket the playhead is inside', () => {
     // Arrange
     const buckets = [bucket(0, 1000), bucket(1000, 5000), bucket(5000, 9000)]
 
@@ -120,7 +120,7 @@ describe('coverageBucketAt', () => {
     expect(coverageBucketAt(buckets, 2500)).toBe(buckets[1])
   })
 
-  it('keeps the last passed bucket after its end (sticky display)', () => {
+  test('keeps the last passed bucket after its end (sticky display)', () => {
     // Arrange
     const buckets = [bucket(0, 1000), bucket(1000, 2000)]
 
@@ -128,7 +128,7 @@ describe('coverageBucketAt', () => {
     expect(coverageBucketAt(buckets, 50_000)).toBe(buckets[1])
   })
 
-  it('returns null before any code executed', () => {
+  test('returns null before any code executed', () => {
     // Arrange
     const buckets = [bucket(3000, 4000)]
 

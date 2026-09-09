@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, test } from 'vitest'
 
 import { BlobStore } from './blob-store'
 
@@ -14,7 +14,7 @@ describe('BlobStore (content-addressed bodies, spec decision 13)', () => {
     rmSync(tempDir, { recursive: true, force: true })
   })
 
-  it('stores bytes under their sha256 so lane rows can reference the body', () => {
+  test('stores bytes under their sha256 so lane rows can reference the body', () => {
     // Arrange
     tempDir = mkdtempSync(join(tmpdir(), 'entrance-blobs-'))
     const store = new BlobStore(tempDir)
@@ -29,7 +29,7 @@ describe('BlobStore (content-addressed bodies, spec decision 13)', () => {
     expect(readFileSync(join(tempDir, 'blobs', hash), 'utf8')).toBe('{"hello":"world"}')
   })
 
-  it('dedupes identical bodies so repeated polling responses cost one file', () => {
+  test('dedupes identical bodies so repeated polling responses cost one file', () => {
     // Arrange
     tempDir = mkdtempSync(join(tmpdir(), 'entrance-blobs-'))
     const store = new BlobStore(tempDir)

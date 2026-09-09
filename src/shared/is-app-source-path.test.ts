@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import { isAppSourcePath } from './is-app-source-path'
 
 describe('app frame picking (code panel skips vendor frames)', () => {
-  it('accepts project sources and rejects vendor/internal ones', () => {
+  test('accepts project sources and rejects vendor/internal ones', () => {
     // Arrange + Act + Assert
     expect(isAppSourcePath('file:///w/next-play/app/guestbook/page.tsx')).toBe(true)
     expect(isAppSourcePath('file:///w/next-play/node_modules/next/src/client.ts')).toBe(false)
@@ -13,7 +13,7 @@ describe('app frame picking (code panel skips vendor frames)', () => {
     expect(isAppSourcePath('')).toBe(false)
   })
 
-  it('rejects Next.js pre-bundled and Turbopack virtual sources (no node_modules marker)', () => {
+  test('rejects Next.js pre-bundled and Turbopack virtual sources (no node_modules marker)', () => {
     // Arrange + Act + Assert — real shapes seen in Turbopack dev bundles
     expect(isAppSourcePath('webpack://next/./dist/compiled/scheduler/cjs/scheduler.production.js')).toBe(false)
     expect(isAppSourcePath('turbopack:///[next]/internal/font/google/geist_a71539c9.js')).toBe(false)

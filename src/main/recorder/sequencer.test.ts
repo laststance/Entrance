@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import { Sequencer } from './sequencer'
 
 describe('Sequencer (canonical clock, spec decision 13)', () => {
-  it('stamps strictly increasing seq across lanes so cross-lane order never ties', () => {
+  test('stamps strictly increasing seq across lanes so cross-lane order never ties', () => {
     // Arrange
     const sequencer = new Sequencer()
 
@@ -18,7 +18,7 @@ describe('Sequencer (canonical clock, spec decision 13)', () => {
     expect(third.seq).toBe(2)
   })
 
-  it('stamps tMono as non-decreasing ms since session attach (replay sort axis)', () => {
+  test('stamps tMono as non-decreasing ms since session attach (replay sort axis)', () => {
     // Arrange
     const sequencer = new Sequencer()
 
@@ -31,7 +31,7 @@ describe('Sequencer (canonical clock, spec decision 13)', () => {
     expect(later.tMono).toBeGreaterThanOrEqual(earlier.tMono)
   })
 
-  it('keeps the payload and lane untouched inside the envelope', () => {
+  test('keeps the payload and lane untouched inside the envelope', () => {
     // Arrange
     const sequencer = new Sequencer()
     const payload = { type: 'error', args: ['boom'] }

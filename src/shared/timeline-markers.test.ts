@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import type { ReplayLaneEvent } from './replay'
 import { buildTimelineMarkers } from './timeline-markers'
@@ -8,7 +8,7 @@ function laneEvent(lane: ReplayLaneEvent['lane'], seq: number, tMono: number, pa
 }
 
 describe('timeline lane markers (mock 1a bottom timeline / 1c legend)', () => {
-  it('maps clicks, app fetches, console, errors, and route changes to their lanes', () => {
+  test('maps clicks, app fetches, console, errors, and route changes to their lanes', () => {
     // Arrange
     const markers = buildTimelineMarkers(
       {
@@ -45,7 +45,7 @@ describe('timeline lane markers (mock 1a bottom timeline / 1c legend)', () => {
     ])
   })
 
-  it('hides bootstrap events recorded before Rec was pressed (decision 27)', () => {
+  test('hides bootstrap events recorded before Rec was pressed (decision 27)', () => {
     // Arrange
     const markers = buildTimelineMarkers(
       {

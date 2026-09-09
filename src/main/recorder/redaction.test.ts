@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import { redactHeaders } from './redaction'
 
 describe('redactHeaders (secrets policy, spec decision 32)', () => {
-  it('masks Authorization / Cookie request values so tokens never reach readable lanes', () => {
+  test('masks Authorization / Cookie request values so tokens never reach readable lanes', () => {
     // Arrange
     const requestHeaders = {
       Authorization: 'Bearer super-secret-token',
@@ -23,7 +23,7 @@ describe('redactHeaders (secrets policy, spec decision 32)', () => {
     expect(result.enclaveEntries).toEqual([])
   })
 
-  it('matches secret header names case-insensitively (CDP header casing varies)', () => {
+  test('matches secret header names case-insensitively (CDP header casing varies)', () => {
     // Arrange
     const requestHeaders = { COOKIE: 'sid=abc123' }
 
@@ -34,7 +34,7 @@ describe('redactHeaders (secrets policy, spec decision 32)', () => {
     expect(result.redacted).toEqual({ COOKIE: '[REDACTED]' })
   })
 
-  it('moves Set-Cookie response values into the enclave and masks the readable copy', () => {
+  test('moves Set-Cookie response values into the enclave and masks the readable copy', () => {
     // Arrange
     const responseHeaders = {
       'Set-Cookie': 'session=xyz789; HttpOnly',
@@ -54,7 +54,7 @@ describe('redactHeaders (secrets policy, spec decision 32)', () => {
     ])
   })
 
-  it('leaves Authorization untouched on responses (only request direction redacts it)', () => {
+  test('leaves Authorization untouched on responses (only request direction redacts it)', () => {
     // Arrange
     const responseHeaders = { Authorization: 'value-echoed-by-server' }
 

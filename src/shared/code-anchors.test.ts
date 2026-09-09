@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import type { ReplayLaneEvent } from './replay'
 import { anchorAt, buildCodeAnchors } from './code-anchors'
@@ -13,7 +13,7 @@ const sampleStack = [
 ]
 
 describe('code anchors (decision 3 line-exact highlight at console/error)', () => {
-  it('collects console and uncaught events that carry stacks, in time order', () => {
+  test('collects console and uncaught events that carry stacks, in time order', () => {
     // Arrange
     const anchors = buildCodeAnchors(
       {
@@ -34,7 +34,7 @@ describe('code anchors (decision 3 line-exact highlight at console/error)', () =
     expect(anchors[1].frames[1].functionName).toBe('handleExport')
   })
 
-  it('hides bootstrap anchors recorded before Rec was pressed (decision 27)', () => {
+  test('hides bootstrap anchors recorded before Rec was pressed (decision 27)', () => {
     // Arrange
     const anchors = buildCodeAnchors(
       { console: [laneEvent('console', 1, 500, { type: 'error', stack: sampleStack })] },
@@ -45,7 +45,7 @@ describe('code anchors (decision 3 line-exact highlight at console/error)', () =
     expect(anchors).toEqual([])
   })
 
-  it('returns the most recently passed anchor for the playhead position', () => {
+  test('returns the most recently passed anchor for the playhead position', () => {
     // Arrange
     const anchors = buildCodeAnchors(
       {

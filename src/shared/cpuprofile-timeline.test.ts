@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import { buildProfileTimeline, cpuProfileFileSchema, profileStackAt } from './cpuprofile-timeline'
 
@@ -29,7 +29,7 @@ const profileFile = cpuProfileFileSchema.parse({
 })
 
 describe('cpuprofile timeline (decision 3 function-level highlight)', () => {
-  it('maps V8 sample times onto the canonical clock via the calibration pair', () => {
+  test('maps V8 sample times onto the canonical clock via the calibration pair', () => {
     // Arrange — t0Mono 1000, profiler started at 1500 → samples at 510/530/550ms;
     // the idle sample at 550 is dropped from the executed-sample timeline.
     const timeline = buildProfileTimeline(profileFile, 1000)
@@ -38,7 +38,7 @@ describe('cpuprofile timeline (decision 3 function-level highlight)', () => {
     expect(timeline.sampleOffsets).toEqual([510, 530])
   })
 
-  it('reports the executing stack leaf-first and strips V8 meta frames', () => {
+  test('reports the executing stack leaf-first and strips V8 meta frames', () => {
     // Arrange
     const timeline = buildProfileTimeline(profileFile, 1000)
 
@@ -49,7 +49,7 @@ describe('cpuprofile timeline (decision 3 function-level highlight)', () => {
     expect(stack?.map((frame) => frame.functionName)).toEqual(['innerFn', 'appFn'])
   })
 
-  it('keeps the last executed stack on screen through idle gaps', () => {
+  test('keeps the last executed stack on screen through idle gaps', () => {
     // Arrange — page JS runs in ms bursts; >99% of samples are idle
     const timeline = buildProfileTimeline(profileFile, 1000)
 
@@ -61,7 +61,7 @@ describe('cpuprofile timeline (decision 3 function-level highlight)', () => {
     ])
   })
 
-  it('returns null before any page code has run', () => {
+  test('returns null before any page code has run', () => {
     // Arrange
     const timeline = buildProfileTimeline(profileFile, 1000)
 

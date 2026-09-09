@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, test } from 'vitest'
 
 import type { Lane } from '@shared/envelope'
 
@@ -25,7 +25,7 @@ describe('library card derived meta (screen 1e thumbnail + click/fetch/error chi
     rmSync(recordingDir, { recursive: true, force: true })
   })
 
-  it('backfills the HUD tally from lanes, counting only events at/after t0', () => {
+  test('backfills the HUD tally from lanes, counting only events at/after t0', () => {
     // Arrange — t0 = 1000; the earlier fetch is bootstrap capture and must not count
     recordingDir = mkdtempSync(join(tmpdir(), 'entrance-derived-'))
     mkdirSync(join(recordingDir, 'lanes'), { recursive: true })
@@ -53,7 +53,7 @@ describe('library card derived meta (screen 1e thumbnail + click/fetch/error chi
     expect(meta.tally).toEqual({ click: 2, fetch: 1, console: 2, error: 2 })
   })
 
-  it('picks the first screencast frame blob as the card thumbnail', () => {
+  test('picks the first screencast frame blob as the card thumbnail', () => {
     // Arrange
     recordingDir = mkdtempSync(join(tmpdir(), 'entrance-derived-'))
     mkdirSync(join(recordingDir, 'lanes'), { recursive: true })
@@ -69,7 +69,7 @@ describe('library card derived meta (screen 1e thumbnail + click/fetch/error chi
     expect(meta.thumbnailBlobHash).toBe('firstframehash')
   })
 
-  it('returns zero tally and no thumbnail for an empty recording (golden corpus: empty bundle)', () => {
+  test('returns zero tally and no thumbnail for an empty recording (golden corpus: empty bundle)', () => {
     // Arrange
     recordingDir = mkdtempSync(join(tmpdir(), 'entrance-derived-'))
     mkdirSync(join(recordingDir, 'lanes'), { recursive: true })
@@ -84,7 +84,7 @@ describe('library card derived meta (screen 1e thumbnail + click/fetch/error chi
     })
   })
 
-  it('tolerates a torn final line (crash-recovered bundles stay listable)', () => {
+  test('tolerates a torn final line (crash-recovered bundles stay listable)', () => {
     // Arrange
     recordingDir = mkdtempSync(join(tmpdir(), 'entrance-derived-'))
     mkdirSync(join(recordingDir, 'lanes'), { recursive: true })

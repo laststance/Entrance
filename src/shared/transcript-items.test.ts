@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import type { ReplayLaneEvent } from './replay'
 import { buildTranscriptItems, transcriptIndexAt } from './transcript-items'
@@ -8,7 +8,7 @@ function laneEvent(lane: ReplayLaneEvent['lane'], seq: number, tMono: number, pa
 }
 
 describe('transcript rows (mock 1b numbered event list)', () => {
-  it('joins fetch request/response into one row with status, keeps pending when no response', () => {
+  test('joins fetch request/response into one row with status, keeps pending when no response', () => {
     // Arrange
     const items = buildTranscriptItems(
       {
@@ -49,7 +49,7 @@ describe('transcript rows (mock 1b numbered event list)', () => {
     expect(items.every((item) => item.filterGroup === 'network')).toBe(true)
   })
 
-  it('marks a fetch row failed when the request ends in Network.loadingFailed', () => {
+  test('marks a fetch row failed when the request ends in Network.loadingFailed', () => {
     // Arrange
     const items = buildTranscriptItems(
       {
@@ -72,7 +72,7 @@ describe('transcript rows (mock 1b numbered event list)', () => {
     expect(items[0].title).toBe('fetch·failed')
   })
 
-  it('collapses a typing burst into one masked input row and never shows key contents', () => {
+  test('collapses a typing burst into one masked input row and never shows key contents', () => {
     // Arrange — 3 keys within the burst gap, then a click, then a distant key
     const items = buildTranscriptItems(
       {
@@ -98,7 +98,7 @@ describe('transcript rows (mock 1b numbered event list)', () => {
     expect(JSON.stringify(items)).not.toContain('KeyA')
   })
 
-  it('shows route rows as path transitions starting from the recording start URL', () => {
+  test('shows route rows as path transitions starting from the recording start URL', () => {
     // Arrange — one pre-t0 navigation (tracked but hidden) then two visible ones
     const items = buildTranscriptItems(
       {
@@ -118,7 +118,7 @@ describe('transcript rows (mock 1b numbered event list)', () => {
     expect(items.map((item) => item.kind)).toEqual(['route', 'route'])
   })
 
-  it('splits console rows into error vs other filter groups and adds uncaught rows', () => {
+  test('splits console rows into error vs other filter groups and adds uncaught rows', () => {
     // Arrange
     const items = buildTranscriptItems(
       {
@@ -142,7 +142,7 @@ describe('transcript rows (mock 1b numbered event list)', () => {
     ])
   })
 
-  it('orders mixed-lane rows by time so the transcript reads chronologically', () => {
+  test('orders mixed-lane rows by time so the transcript reads chronologically', () => {
     // Arrange
     const items = buildTranscriptItems(
       {
@@ -168,7 +168,7 @@ describe('transcript rows (mock 1b numbered event list)', () => {
 })
 
 describe('transcript playhead highlight (1b current-row follow)', () => {
-  it('returns the last row at or before the playhead, and -1 before the first row', () => {
+  test('returns the last row at or before the playhead, and -1 before the first row', () => {
     // Arrange
     const items = buildTranscriptItems(
       {

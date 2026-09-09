@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import type { ReplayLaneEvent } from './replay'
 import { buildRrwebTimeMap, toRrwebOffset, toTMonoOffset } from './rrweb-time-map'
@@ -14,24 +14,24 @@ describe('seek clock mapping (decision 13: tMono is canonical, rrweb time stays 
     1000,
   )
 
-  it('maps a seek-bar position to the replayer offset via the nearest earlier event', () => {
+  test('maps a seek-bar position to the replayer offset via the nearest earlier event', () => {
     // Act + Assert — 2510ms after t0 sits 1500ms past the second anchor (tMonoOffset 1010 → rrweb 1000)
     expect(toRrwebOffset(anchors, 2510)).toBe(2500)
   })
 
-  it('clamps seeks past the last rrweb event to the lane end (quiet recording tail)', () => {
+  test('clamps seeks past the last rrweb event to the lane end (quiet recording tail)', () => {
     // Act + Assert
     expect(toRrwebOffset(anchors, 99_999)).toBe(5000)
     expect(toRrwebOffset(anchors, -50)).toBe(0)
   })
 
-  it('maps the replayer clock back to the canonical clock for the playhead display', () => {
+  test('maps the replayer clock back to the canonical clock for the playhead display', () => {
     // Act + Assert — inverse of the seek mapping at an anchor and between anchors
     expect(toTMonoOffset(anchors, 1000)).toBe(1010)
     expect(toTMonoOffset(anchors, 1500)).toBe(1510)
   })
 
-  it('skips garbled rrweb payloads without breaking the map', () => {
+  test('skips garbled rrweb payloads without breaking the map', () => {
     // Arrange
     const withGarbage = buildRrwebTimeMap(
       [

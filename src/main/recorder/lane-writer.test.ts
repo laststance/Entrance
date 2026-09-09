@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, test } from 'vitest'
 
 import type { LaneEvent } from '@shared/envelope'
 
@@ -19,7 +19,7 @@ describe('LaneWriterSet (JSONL lanes, spec decision 13)', () => {
     rmSync(tempDir, { recursive: true, force: true })
   })
 
-  it('appends one JSON line per event into <lane>.jsonl', () => {
+  test('appends one JSON line per event into <lane>.jsonl', () => {
     // Arrange
     tempDir = mkdtempSync(join(tmpdir(), 'entrance-lanes-'))
     const lanes = new LaneWriterSet(tempDir)
@@ -42,7 +42,7 @@ describe('LaneWriterSet (JSONL lanes, spec decision 13)', () => {
     expect(consoleLines).toHaveLength(1)
   })
 
-  it('keeps every appended line readable while writers stay open (finalize copies live files)', () => {
+  test('keeps every appended line readable while writers stay open (finalize copies live files)', () => {
     // Arrange
     tempDir = mkdtempSync(join(tmpdir(), 'entrance-lanes-'))
     const lanes = new LaneWriterSet(tempDir)
@@ -56,7 +56,7 @@ describe('LaneWriterSet (JSONL lanes, spec decision 13)', () => {
     lanes.close()
   })
 
-  it('accounts bytes and per-lane event counts for the backpressure counter', () => {
+  test('accounts bytes and per-lane event counts for the backpressure counter', () => {
     // Arrange
     tempDir = mkdtempSync(join(tmpdir(), 'entrance-lanes-'))
     const lanes = new LaneWriterSet(tempDir)

@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import { buildFtsMatchExpression } from './fts-match-expression'
 
 describe('library search query building (screen 1e search box → FTS5 MATCH)', () => {
-  it('turns space-separated words into AND-ed quoted prefix terms', () => {
+  test('turns space-separated words into AND-ed quoted prefix terms', () => {
     // Act
     const expression = buildFtsMatchExpression('export bug')
 
@@ -11,7 +11,7 @@ describe('library search query building (screen 1e search box → FTS5 MATCH)', 
     expect(expression).toBe('"export"* AND "bug"*')
   })
 
-  it('keeps Japanese full-width-space-separated terms searchable', () => {
+  test('keeps Japanese full-width-space-separated terms searchable', () => {
     // Act
     const expression = buildFtsMatchExpression('録画　ダッシュボード')
 
@@ -19,7 +19,7 @@ describe('library search query building (screen 1e search box → FTS5 MATCH)', 
     expect(expression).toBe('"録画"* AND "ダッシュボード"*')
   })
 
-  it('strips quotes and symbol-only tokens so user input can never produce FTS5 syntax errors', () => {
+  test('strips quotes and symbol-only tokens so user input can never produce FTS5 syntax errors', () => {
     // Act
     const expression = buildFtsMatchExpression('a"b OR *')
 
@@ -27,7 +27,7 @@ describe('library search query building (screen 1e search box → FTS5 MATCH)', 
     expect(expression).toBe('"ab"* AND "OR"*')
   })
 
-  it('returns null for blank input so callers fall back to the unfiltered list', () => {
+  test('returns null for blank input so callers fall back to the unfiltered list', () => {
     // Act + Assert
     expect(buildFtsMatchExpression('   ')).toBeNull()
     expect(buildFtsMatchExpression('""')).toBeNull()

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import type { ReplayLaneEvent } from '@shared/replay'
 import { NetworkMatcher, normalizeMatchUrl } from './network-matcher'
@@ -24,7 +24,7 @@ function recordedExchange(
 }
 
 describe('Mode B network matcher (decision 29 ordinal replay)', () => {
-  it('replays repeated requests to the same URL in recorded order', () => {
+  test('replays repeated requests to the same URL in recorded order', () => {
     // Arrange — two polls of the same endpoint with different bodies
     const matcher = new NetworkMatcher([
       ...recordedExchange('r1', 'http://localhost:3000/api/poll', 200, 'hash-first'),
@@ -38,7 +38,7 @@ describe('Mode B network matcher (decision 29 ordinal replay)', () => {
     expect(matcher.match('GET', 'http://localhost:3000/api/poll')?.bodyHash).toBe('hash-second')
   })
 
-  it('reports a miss (divergence) for requests the recording never saw', () => {
+  test('reports a miss (divergence) for requests the recording never saw', () => {
     // Arrange
     const matcher = new NetworkMatcher(
       recordedExchange('r1', 'http://localhost:3000/api/notes', 200, 'h1'),
@@ -49,7 +49,7 @@ describe('Mode B network matcher (decision 29 ordinal replay)', () => {
     expect(matcher.match('POST', 'http://localhost:3000/api/notes')).toBeNull()
   })
 
-  it('serves a recorded RSC nav fetch even when the _rsc cache-buster drifted', () => {
+  test('serves a recorded RSC nav fetch even when the _rsc cache-buster drifted', () => {
     // Arrange — recorded client-side nav carried the record-session's _rsc hash
     const matcher = new NetworkMatcher(
       recordedExchange('r1', 'http://localhost:3000/guestbook?_rsc=2Md0sTUZcnjCijMr', 200, 'flight-body'),
@@ -60,7 +60,7 @@ describe('Mode B network matcher (decision 29 ordinal replay)', () => {
     expect(matcher.match('GET', 'http://localhost:3000/guestbook?tab=2')).toBeNull()
   })
 
-  it('serves a recorded exchange when only a trailing slash drifted, keeping root intact', () => {
+  test('serves a recorded exchange when only a trailing slash drifted, keeping root intact', () => {
     // Arrange — recorded WITH a trailing slash
     const matcher = new NetworkMatcher(
       recordedExchange('r1', 'http://localhost:3000/guestbook/', 200, 'hash-slash'),
@@ -72,7 +72,7 @@ describe('Mode B network matcher (decision 29 ordinal replay)', () => {
     expect(matcher.match('GET', 'http://localhost:3000/guestbook')?.bodyHash).toBe('hash-slash')
   })
 
-  it('serves a recorded Clerk catch-all probe despite its Date.now() path suffix', () => {
+  test('serves a recorded Clerk catch-all probe despite its Date.now() path suffix', () => {
     // Arrange — Clerk appends the current epoch ms to the probe path, so the
     // replay's probe URL never equals the recorded one byte-for-byte.
     const matcher = new NetworkMatcher(
@@ -91,7 +91,7 @@ describe('Mode B network matcher (decision 29 ordinal replay)', () => {
     ).toBe('probe-body')
   })
 
-  it('matches ignoring URL fragments and skips exchanges that never completed', () => {
+  test('matches ignoring URL fragments and skips exchanges that never completed', () => {
     // Arrange — r1 has no response row (in-flight at rec stop)
     const matcher = new NetworkMatcher([
       laneEvent({ phase: 'request', requestId: 'r1', url: 'http://localhost:3000/api/slow', method: 'GET' }),
@@ -106,7 +106,7 @@ describe('Mode B network matcher (decision 29 ordinal replay)', () => {
 })
 
 describe('GET replay fallback', () => {
-  it('serves a repeated GET for a static asset after its ordinal is consumed', () => {
+  test('serves a repeated GET for a static asset after its ordinal is consumed', () => {
     // Arrange — one recorded exchange for a chunk the page fetches twice
     // (preload + script tag) during re-execution.
     const matcher = new NetworkMatcher([
@@ -140,7 +140,7 @@ describe('GET replay fallback', () => {
     expect(second?.status).toBe(200)
   })
 
-  it('never replays exhausted POST ordinals (stateful requests stay strict FIFO)', () => {
+  test('never replays exhausted POST ordinals (stateful requests stay strict FIFO)', () => {
     // Arrange
     const matcher = new NetworkMatcher([
       {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import { parseLaneJsonl } from './replay'
 
@@ -7,7 +7,7 @@ function row(seq: number, tMono: number): string {
 }
 
 describe('lane JSONL reading at replay time (bundle is hostile disk data)', () => {
-  it('parses rows and returns them in canonical (tMono, seq) order', () => {
+  test('parses rows and returns them in canonical (tMono, seq) order', () => {
     // Arrange — same-millisecond tie broken by seq (golden corpus: cross-lane tie)
     const text = [row(2, 300), row(0, 100), row(3, 300), row(1, 200)].join('\n')
 
@@ -18,7 +18,7 @@ describe('lane JSONL reading at replay time (bundle is hostile disk data)', () =
     expect(events.map((event) => event.seq)).toEqual([0, 1, 2, 3])
   })
 
-  it('drops torn and garbled lines so crash-recovered bundles still replay', () => {
+  test('drops torn and garbled lines so crash-recovered bundles still replay', () => {
     // Arrange
     const text = `${row(0, 100)}\nnot json at all\n{"seq":1,"tMono":2\n${row(2, 300)}\n{"seq":"bad types"}`
 
@@ -29,7 +29,7 @@ describe('lane JSONL reading at replay time (bundle is hostile disk data)', () =
     expect(events.map((event) => event.seq)).toEqual([0, 2])
   })
 
-  it('returns an empty list for an empty lane file (golden corpus: empty recording)', () => {
+  test('returns an empty list for an empty lane file (golden corpus: empty recording)', () => {
     // Act + Assert
     expect(parseLaneJsonl('')).toEqual([])
   })
